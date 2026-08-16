@@ -15,7 +15,7 @@
 | **Release GO** | URL релиза отвечают, installer запускается, 404/HTML не маскируются, procd **стабильно** держит процесс |
 | **Deployment GO** | после reboot клиент проходит `curl --socks5-hostname 127.0.0.1:8808` через ту же Telemost-комнату |
 
-Этот репозиторий закрывает Release GO после публикации тега. Deployment GO проверяется на роутере и телефоне.
+Этот репозиторий закрывает Release GO, когда в GitHub Release лежат installer и ELF. Push в `main` при `VERSION=*-untested` сам пересобирает **prerelease** `v0.0.1-untested`. Корень репозитория — исходники, не канал установки. Deployment GO проверяется на роутере и телефоне.
 
 ## Что нужно заранее
 
@@ -113,7 +113,7 @@ curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 
 ## Бинарники
 
-Их собирает **GitHub Actions** из зафиксированного коммита (`versions.env`) и кладёт в Release **только по push тега `v*`**. Ручной `workflow_dispatch` отключён: иначе можно собрать `main` и подписать чужим тегом.
+Их собирает **GitHub Actions** из зафиксированного коммита (`versions.env`) и кладёт **в GitHub Release**, не в корень репо. Пока `VERSION` с суффиксом `-untested`, каждый push в `main` обновляет prerelease `v0.0.1-untested` (это не `latest`). Стабильный `0.0.1` без суффикса выходит только с тега `v0.0.1`.
 
 Ассеты: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
