@@ -21,13 +21,15 @@ jobs:
           sh -n uninstall.sh
           sh -n scripts/build-olcrtc.sh
           sh -n scripts/check-installer.sh
+          sh -n scripts/prepare-release.sh
           dash -n install.sh
           dash -n uninstall.sh
           dash -n scripts/build-olcrtc.sh
           dash -n scripts/check-installer.sh
+          dash -n scripts/prepare-release.sh
 
       - name: ShellCheck
-        run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh
+        run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh scripts/prepare-release.sh
 
       - name: dump-config and dump-uri fixtures
         run: sh scripts/check-installer.sh

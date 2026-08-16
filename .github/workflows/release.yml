@@ -1,24 +1,45 @@
 name: release
 
+# Only a pushed v* tag becomes /releases/latest.
+# workflow_dispatch is intentionally absent: it could build main and
+# attach the artifacts to a different tag.
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to create or update (empty = snapshot prerelease)"
-        required: false
-        type: string
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install shellcheck and dash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck dash
+
+      - name: POSIX syntax
+        run: |
+          sh -n install.sh
+          sh -n uninstall.sh
+          sh -n scripts/build-olcrtc.sh
+          sh -n scripts/check-installer.sh
+          sh -n scripts/prepare-release.sh
+          dash -n install.sh
+          dash -n uninstall.sh
+          dash -n scripts/build-olcrtc.sh
+          dash -n scripts/check-installer.sh
+          dash -n scripts/prepare-release.sh
+
+      - name: ShellCheck
+        run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh scripts/prepare-release.sh
+
+      - name: Installer fixtures
+        run: sh scripts/check-installer.sh
 
       - name: Read versions.env
         id: ver
@@ -35,15 +56,33 @@ jobs:
       - name: Cross-build linux/arm64 and linux/amd64
         run: sh scripts/build-olcrtc.sh
 
+      - name: Pre-publish gate (ELF both arches + SHA256SUMS)
+        run: |
+          test -s dist/olcrtc-linux-arm64
+          test -s dist/olcrtc-linux-amd64
+          test -s dist/SHA256SUMS
+          test -s dist/OLCRTC_COMMIT.txt
+          grep -qx '${{ steps.ver.outputs.commit }}' dist/OLCRTC_COMMIT.txt
+          hex_arm=$(od -An -tx1 -N 4 dist/olcrtc-linux-arm64 | tr -d ' \n\t')
+          hex_amd=$(od -An -tx1 -N 4 dist/olcrtc-linux-amd64 | tr -d ' \n\t')
+          test "$hex_arm" = "7f454c46"
+          test "$hex_amd" = "7f454c46"
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Bake installer to this tag
+        run: sh scripts/prepare-release.sh "${GITHUB_REF_NAME}"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'snapshot' }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'snapshot' }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
+            dist/install.sh
+            dist/uninstall.sh
             dist/olcrtc-linux-arm64
             dist/olcrtc-linux-amd64
             dist/SHA256SUMS
@@ -52,4 +91,7 @@ jobs:
             Pinned upstream: `${{ steps.ver.outputs.commit }}`
 
             Built with `CGO_ENABLED=0` from `openlibrecommunity/olcrtc` (`./cmd/olcrtc`).
-            Installer: `ROOM_ID='…' sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"`
+            Installer and binaries are from **this tag**, not from `main`.
+
+            Release GO: these assets + a stable procd start.
+            Deployment GO: reboot + phone `curl --socks5-hostname 127.0.0.1:8808`.

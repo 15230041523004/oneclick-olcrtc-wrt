@@ -2,9 +2,8 @@
 # oneclick-olcrtc-wrt — OpenWrt installer for current OlcRTC mode:srv
 # (Yandex Telemost + vp8channel).
 #
-# One-liner:
-#   ROOM_ID='<telemost-room-id>' \
-#   sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"
+# Fetch from the same GitHub Release as the binaries (not raw main).
+# wget or uclient-fetch, then run the file. Do not use sh -c "$(wget -qO- …)".
 #
 # Dry-run (no OpenWrt, no downloads):
 #   ROOM_ID=... ENCRYPTION_KEY=... sh install.sh --dump-config
@@ -46,7 +45,19 @@ esac
 ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
-RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/${GITHUB_REPO}/releases/latest/download}"
+
+# Empty in git. The release workflow bakes the tag, e.g. v0.1.2, so a
+# downloaded installer pulls binaries from that same Release — not from
+# a floating main / a different latest.
+INSTALLER_RELEASE="${INSTALLER_RELEASE:-}"
+
+if [ -z "${RELEASE_BASE_URL:-}" ]; then
+    if [ -n "$INSTALLER_RELEASE" ]; then
+        RELEASE_BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/${INSTALLER_RELEASE}"
+    else
+        RELEASE_BASE_URL="https://github.com/${GITHUB_REPO}/releases/latest/download"
+    fi
+fi
 
 # Leave empty to use this repo's GitHub Release assets.
 BINARY_URL_ARM64="${BINARY_URL_ARM64:-}"
@@ -70,13 +81,21 @@ INIT_FILE="${INIT_FILE:-/etc/init.d/olcrtc-srv}"
 SERVICE_NAME="${SERVICE_NAME:-olcrtc-srv}"
 SYSUPGRADE_CONF="${SYSUPGRADE_CONF:-/etc/sysupgrade.conf}"
 
-STARTUP_WAIT="${STARTUP_WAIT:-6}"
+# procd must stay running for STABLE_NEEDED samples, STABLE_INTERVAL
+# seconds apart, within STABLE_MAX seconds. One "running" snapshot is
+# not enough: respawn can look alive while the process is crash-looping.
+STABLE_NEEDED="${STABLE_NEEDED:-3}"
+STABLE_INTERVAL="${STABLE_INTERVAL:-5}"
+STABLE_MAX="${STABLE_MAX:-45}"
+
 MIN_FREE_KB="${MIN_FREE_KB:-49152}"
+MIN_TMP_KB="${MIN_TMP_KB:-32768}"
 URI_LABEL="${URI_LABEL:-OpenWRT-Telemost-srv}"
 
-# Go heap cap for 512 MiB LTE routers (AX3600-class). Override if needed.
+# Go heap cap for a 512 MiB LTE router (supported minimum).
 GOMEMLIMIT="${GOMEMLIMIT:-80MiB}"
-MEM_WARN_KB="${MEM_WARN_KB:-131072}"
+# Warn below 512 MiB MemAvailable. 256 MiB is unproven; 128 MiB is unsupported.
+MEM_WARN_KB="${MEM_WARN_KB:-524288}"
 
 ###############################################################################
 # END USER SETTINGS
@@ -85,6 +104,7 @@ MEM_WARN_KB="${MEM_WARN_KB:-131072}"
 DUMP_CONFIG=0
 DUMP_URI=0
 DUMP_INIT=0
+DUMP_RELEASE_URL=0
 MEM_WARN=""
 
 usage() {
@@ -93,10 +113,11 @@ Usage: install.sh [--dump-config|--dump-uri|--help]
 
   ROOM_ID is required. ENCRYPTION_KEY is optional (generated or reused).
 
-  --dump-config   print server.yaml to stdout and exit (no install)
-  --dump-uri      print the client olcrtc:// URI to stdout and exit
-  --dump-init     print the procd init script to stdout and exit
-  --help          show this help
+  --dump-config       print server.yaml to stdout and exit (no install)
+  --dump-uri          print the client olcrtc:// URI to stdout and exit
+  --dump-init         print the procd init script to stdout and exit
+  --dump-release-url  print the binary download base URL and exit
+  --help              show this help
 EOF
 }
 
@@ -119,6 +140,9 @@ for arg in "$@"; do
             ;;
         --dump-init)
             DUMP_INIT=1
+            ;;
+        --dump-release-url)
+            DUMP_RELEASE_URL=1
             ;;
         --help|-h)
             usage
@@ -336,9 +360,9 @@ validate_settings() {
             ;;
     esac
 
-    case "$VP8_FPS$VP8_BATCH_SIZE$UPSTREAM_PROXY_PORT" in
+    case "$VP8_FPS$VP8_BATCH_SIZE$UPSTREAM_PROXY_PORT$STABLE_NEEDED$STABLE_INTERVAL$STABLE_MAX" in
         *[!0-9]*)
-            die "VP8_FPS, VP8_BATCH_SIZE and UPSTREAM_PROXY_PORT must be integers"
+            die "VP8_FPS, VP8_BATCH_SIZE, UPSTREAM_PROXY_PORT and STABLE_* must be integers"
             ;;
     esac
 
@@ -356,6 +380,11 @@ validate_settings() {
 ###############################################################################
 # Early dry-run exits
 ###############################################################################
+
+if [ "$DUMP_RELEASE_URL" -eq 1 ]; then
+    printf '%s\n' "$RELEASE_BASE_URL"
+    exit 0
+fi
 
 validate_settings
 resolve_encryption_key
@@ -455,6 +484,7 @@ esac
 
 check_space() {
     mountpoint="$1"
+    need="${2:-$MIN_FREE_KB}"
     avail="$(df -k "$mountpoint" 2>/dev/null | awk 'NR==2 {print $4}')"
     case "$avail" in
         '' | *[!0-9]*)
@@ -462,12 +492,13 @@ check_space() {
             return 0
             ;;
     esac
-    if [ "$avail" -lt "$MIN_FREE_KB" ]; then
-        die "not enough free space on $mountpoint: ${avail} KiB (need ${MIN_FREE_KB} KiB)"
+    if [ "$avail" -lt "$need" ]; then
+        die "not enough free space on $mountpoint: ${avail} KiB (need ${need} KiB)"
     fi
 }
 
-check_space /usr
+check_space /tmp "$MIN_TMP_KB"
+check_space /usr "$MIN_FREE_KB"
 
 
 ###############################################################################
@@ -645,25 +676,53 @@ log "enabling procd service"
 log "starting OlcRTC server"
 "$INIT_FILE" restart
 
-sleep "$STARTUP_WAIT"
+procd_is_running() {
+    status_json="$(
+        ubus call service list "{\"name\":\"${SERVICE_NAME}\"}" 2>/dev/null || true
+    )"
+    printf '%s' "$status_json" |
+        grep -Eq '"running"[[:space:]]*:[[:space:]]*true'
+}
 
-status_json="$(
-    ubus call service list "{\"name\":\"${SERVICE_NAME}\"}" 2>/dev/null || true
-)"
+stable=0
+elapsed=0
+while [ "$elapsed" -lt "$STABLE_MAX" ]; do
+    if procd_is_running; then
+        stable=$((stable + 1))
+        log "procd running (${stable}/${STABLE_NEEDED})"
+        if [ "$stable" -ge "$STABLE_NEEDED" ]; then
+            break
+        fi
+    else
+        if [ "$stable" -gt 0 ]; then
+            log "procd dropped; resetting stability counter"
+        fi
+        stable=0
+    fi
+    sleep "$STABLE_INTERVAL"
+    elapsed=$((elapsed + STABLE_INTERVAL))
+done
 
-if printf '%s' "$status_json" |
-    grep -Eq '"running"[[:space:]]*:[[:space:]]*true'; then
+if [ "$stable" -ge "$STABLE_NEEDED" ]; then
     service_state="RUNNING"
+    install_ok=1
 else
-    service_state="NOT CONFIRMED - inspect logread"
+    service_state="NOT STABLE - inspect logread"
+    install_ok=0
 fi
 
 CLIENT_URI="$(client_uri)"
 
+if [ "$install_ok" -eq 1 ]; then
+    result_title="OlcRTC server installation complete"
+else
+    result_title="OlcRTC server FAILED to stay running"
+fi
+
 cat <<EOF_DONE
 
 ============================================================
- OlcRTC server installation complete
+ $result_title
 ============================================================
 
 Service:        $SERVICE_NAME
@@ -725,5 +784,12 @@ The current olcrtc CLI consumes YAML, not an olcrtc:// URI.
 The URI is for compatible client apps. It contains the encryption
 key — do not post it in a public chat, issue or screenshot.
 
+procd "running" means the process stayed up. It is not a Telemost /
+OLC2 / SOCKS check. That is Deployment GO on the client.
+
 ============================================================
 EOF_DONE
+
+if [ "$install_ok" -ne 1 ]; then
+    die "service $SERVICE_NAME did not stay running for ${STABLE_NEEDED} consecutive checks"
+fi

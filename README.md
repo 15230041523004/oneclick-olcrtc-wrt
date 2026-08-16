@@ -6,28 +6,49 @@
 
 Это **не** клиентский TUN/LuCI-пакет вроде `alekvol/openwrt-olcrtc`. Старый CLI (`-mode cnc -carrier …`) и сборки v0.1.2 с текущими клиентами **не соединяются** (другой wire-format, OLC2).
 
+Два разных статуса готовности:
+
+| Статус | Что значит |
+|---|---|
+| **Release GO** | URL релиза отвечают, installer запускается, 404/HTML не маскируются, procd **стабильно** держит процесс |
+| **Deployment GO** | после reboot клиент проходит `curl --socks5-hostname 127.0.0.1:8808` через ту же Telemost-комнату |
+
+Этот репозиторий закрывает Release GO после публикации тега. Deployment GO проверяется на роутере и телефоне.
+
 ## Что нужно заранее
 
 1. Создайте видеовстречу в [Телемосте](https://telemost.yandex.ru/) и скопируйте Room ID. Текущий OlcRTC **не умеет** создавать комнаты Telemost сам.
-2. Роутер: OpenWrt, `uname -m` = `aarch64` или `x86_64`, примерно 128 МиБ RAM и 50 МиБ свободной flash.
-3. GitHub Release этого репозитория должен содержать `olcrtc-linux-arm64`, `olcrtc-linux-amd64` и `SHA256SUMS`. Роутер **только скачивает** готовый ELF. Go, mage и исходники OlcRTC на коробку не ставятся.
+2. Роутер: OpenWrt, `uname -m` = `aarch64` или `x86_64`.
+3. RAM:
+   - **512 МиБ — поддерживаемый минимум** (AX3600-класс);
+   - 256 МиБ — только после отдельного soak, из коробки не обещаем;
+   - 128 МиБ — **не поддерживается**.
+4. Свободно ~50 МиБ на overlay **и** ~32 МиБ в `/tmp` (скачивание идёт в RAM-backed tmpfs).
+5. На роутере есть `wget` **или** `uclient-fetch`.
+6. Релиз этого репозитория содержит `install.sh`, `uninstall.sh`, оба ELF и `SHA256SUMS`. Роутер **только скачивает**. Go/mage/исходники на коробку не ставятся.
 
 ## Установка
 
-```sh
-ROOM_ID='<telemost-room-id>' \
-sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"
-```
-
-Ключ можно задать явно (64 hex-символа). Если не задан — при повторной установке берётся ключ из `/etc/olcrtc/server.yaml`, иначе генерируется новый:
+Не используйте `sh -c "$(wget -qO- …)"`: при 404 это даёт пустой успешный `sh -c`.
 
 ```sh
-ROOM_ID='<telemost-room-id>' \
-ENCRYPTION_KEY='<64-hex>' \
-sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"
+INSTALL_URL='https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh'
+rm -f /tmp/olcrtc-install.sh
+if command -v wget >/dev/null 2>&1; then
+    wget -O /tmp/olcrtc-install.sh "$INSTALL_URL" || exit 1
+elif command -v uclient-fetch >/dev/null 2>&1; then
+    uclient-fetch -O /tmp/olcrtc-install.sh "$INSTALL_URL" || exit 1
+else
+    echo "need wget or uclient-fetch" >&2
+    exit 1
+fi
+head -n 1 /tmp/olcrtc-install.sh | grep -q '^#!/bin/sh' || exit 1
+ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
-Скрипт ничего не спрашивает. Он скачивает pinned-бинарник из Releases этого репозитория, проверяет SHA-256, пишет YAML, ставит procd-сервис, включает автозапуск и печатает клиентский `olcrtc://` URI.
+Свой ключ (64 hex) — та же схема, плюс `ENCRYPTION_KEY='…'` перед `sh /tmp/olcrtc-install.sh`. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
+
+Скачанный `install.sh` уже привязан к **тому же тегу**, что и бинарники. Скрипт ничего не спрашивает: качает ELF, проверяет SHA-256 и что это ELF, пишет YAML, ставит procd, ждёт несколько подряд `running: true`, иначе выходит с кодом 1.
 
 **URI содержит ключ шифрования.** Не публикуйте его в issue, чате или скриншоте.
 
@@ -41,7 +62,7 @@ sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olc
 | `VP8_FPS` / `VP8_BATCH_SIZE` | `30` / `64` | рекомендация upstream |
 | `DNS_SERVER` | `8.8.8.8:53` | DNS на стороне `srv` |
 | `ARCH_OVERRIDE` | `uname -m` | `arm64` или `amd64` |
-| `BINARY_URL_ARM64` / `BINARY_URL_AMD64` | asset из Releases | свой HTTPS URL |
+| `BINARY_URL_ARM64` / `BINARY_URL_AMD64` | asset из того же Release | свой HTTPS URL |
 | `UPSTREAM_PROXY_ADDR` | пусто | исходящий SOCKS5 для самого сервера |
 
 `PROVIDER` и `TRANSPORT` зафиксированы: `telemost` + `vp8channel`.
@@ -55,87 +76,47 @@ sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olc
 | `/etc/init.d/olcrtc-srv` | procd, `olcrtc /etc/olcrtc/server.yaml` |
 | `/etc/sysupgrade.conf` | сохранить файлы при sysupgrade |
 
-Сервис: `START=95`, `respawn 3600 5 0` (бесконечные перезапуски — удобно, когда LTE поднимается позже procd). Входящего TCP-порта нет: `mode: srv` сам ходит наружу через WebRTC. Проброс портов и DNAT не нужны. CGNAT оператора не мешает **входящему** TCP, но Telemost/WebRTC оператор всё равно должен пропускать.
+Сервис: `START=95`, `respawn 3600 5 0`, `GOMEMLIMIT=80MiB`. Входящего TCP-порта нет. DNAT не нужен.
 
 Не ставятся: `kmod-tun`, `hev-socks5-tunnel`, LuCI, локальный SOCKS на роутере.
 
-## Проверка на роутере
+## Проверка (Release GO на роутере)
 
 ```sh
 ubus call service list '{"name":"olcrtc-srv"}'
 logread | grep -i olcrtc | tail -n 80
-/etc/init.d/olcrtc-srv restart
 ```
 
-В JSON instance должно быть `"running": true`.
+Несколько выборок подряд должны показывать `"running": true`. Это процесс, не туннель.
 
-## Клиент
+## Клиент (Deployment GO)
 
-Нужен **текущий** OLC2-клиент с тем же Room ID и ключом: [owenclave](https://github.com/owenewans/owenclave), [veil](https://github.com/venterum/veil), [olcbox](https://github.com/alananisimov/olcbox) или свой `cnc` из того же поколения, что и серверный бинарник.
+Нужен **текущий** OLC2-клиент с тем же Room ID и ключом: [owenclave](https://github.com/owenewans/owenclave), [veil](https://github.com/venterum/veil), [olcbox](https://github.com/alananisimov/olcbox) или свой `cnc`.
 
-Пример клиентского YAML (порт 8808 слушает **телефон / ПК**, не роутер):
-
-```yaml
-mode: cnc
-auth:
-  provider: telemost
-room:
-  id: '<тот же Room ID>'
-crypto:
-  key: '<тот же 64-hex ключ>'
-net:
-  transport: vp8channel
-  dns: '8.8.8.8:53'
-socks:
-  host: '127.0.0.1'
-  port: 8808
-vp8:
-  fps: 30
-  batch_size: 64
-```
-
-Проверка туннеля на клиенте:
+После reboot роутера, на клиенте:
 
 ```sh
 curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 ```
 
-Должен вернуться адрес выхода **роутера / оператора роутера**.
+Должен вернуться адрес выхода **роутера / оператора роутера**. Порт 8808 слушает телефон/ПК, не роутер.
 
 ## Удаление
 
-```sh
-sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/uninstall.sh)"
-```
+Тот же fetch, URL `.../releases/latest/download/uninstall.sh`, затем `sh /tmp/olcrtc-uninstall.sh`.
 
 ## Бинарники
 
-У `openlibrecommunity/olcrtc` нет официальных Release binaries. Их собирает **GitHub Actions** этого репозитория из зафиксированного коммита (`versions.env`):
+Их собирает **GitHub Actions** из зафиксированного коммита (`versions.env`) и кладёт в Release **только по push тега `v*`**. Ручной `workflow_dispatch` отключён: иначе можно собрать `main` и подписать чужим тегом.
 
-```text
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64|amd64
-go build -trimpath -ldflags='-s -w' -o olcrtc-linux-<arch> ./cmd/olcrtc
-```
+Ассеты: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
-Ассеты релиза: `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
-
-**Не делайте этого на роутере:** не ставьте Go/mage, не клонируйте `olcrtc` на overlay, не запускайте `scripts/build-olcrtc.sh`. На типичном LTE-роутере (в том числе AX3600) не хватит RAM и flash; upstream сам предупреждает, что при < 4 ГиБ RAM сборке нужен swap.
-
-`scripts/build-olcrtc.sh` — только для мейнтейнера / CI. Пользователю достаточно one-liner выше.
-
-Релиз: тег `v*` или Actions → `release` → Run workflow.
+**Не собирайте на роутере.** `scripts/build-olcrtc.sh` — мейнтейнер / CI.
 
 ## English
 
-One-command OpenWrt installer for **current** OlcRTC `mode: srv` using **Yandex Telemost + `vp8channel`**. The router is the exit node. Create a Telemost room first, then:
-
-```sh
-ROOM_ID='<telemost-room-id>' \
-sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"
-```
-
-The router only downloads a GitHub Release ELF. Do not install Go on the router and do not run `scripts/build-olcrtc.sh` there. Do not use `alekvol/openwrt-olcrtc` v0.1.2 binaries with a modern phone client. See [docs/upstream.md](docs/upstream.md).
+Release GO: GitHub Release assets + installer that fails closed. Deployment GO: reboot and a phone SOCKS check. Supported RAM floor is **512 MiB**. Fetch `install.sh` from `releases/latest/download` with `wget` or `uclient-fetch` into a file; do not pipe wget into `sh -c`. See [docs/upstream.md](docs/upstream.md).
 
 ## License
 
-MIT for the installer scripts in this repository. The shipped `olcrtc` binary is WTFPL, from [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc).
+MIT for the installer scripts. The shipped `olcrtc` binary is WTFPL, from [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc).

@@ -67,6 +67,20 @@ printf '%s\n' "$init2" | grep -q 'PROG="/opt/olcrtc"'
 printf '%s\n' "$init2" | grep -q 'CONF="/opt/olcrtc.yaml"'
 printf '%s\n' "$init2" | grep -q 'GOMEMLIMIT="64MiB"'
 
+url=$(INSTALLER_RELEASE=v9.9.9 sh "$INSTALL" --dump-release-url)
+want_url="https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v9.9.9"
+if [ "$url" != "$want_url" ]; then
+    printf '%s\n' "release URL mismatch: got $url want $want_url" >&2
+    exit 1
+fi
+
+url_latest=$(INSTALLER_RELEASE='' RELEASE_BASE_URL='' sh "$INSTALL" --dump-release-url)
+want_latest="https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download"
+if [ "$url_latest" != "$want_latest" ]; then
+    printf '%s\n' "latest URL mismatch: got $url_latest want $want_latest" >&2
+    exit 1
+fi
+
 from_file=$(
     sed -e 's#@INSTALL_BIN@#/usr/bin/olcrtc#g' \
         -e 's#@CONFIG_FILE@#/etc/olcrtc/server.yaml#g' \
@@ -77,5 +91,13 @@ if [ "$init" != "$from_file" ]; then
     printf '%s\n' "init template drifted from files/olcrtc-srv.init" >&2
     exit 1
 fi
+
+tmpd="${TMPDIR:-/tmp}/olcrtc-prep-$$"
+mkdir -p "$tmpd"
+DIST="$tmpd" sh "$ROOT/scripts/prepare-release.sh" v0.1.2
+head -n 1 "$tmpd/install.sh" | grep -q '^#!/bin/sh'
+# shellcheck disable=SC2016
+grep -q 'INSTALLER_RELEASE="${INSTALLER_RELEASE:-v0.1.2}"' "$tmpd/install.sh"
+rm -rf "$tmpd"
 
 printf '%s\n' "ALL_CHECKS_PASSED"

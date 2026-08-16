@@ -9,7 +9,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64|amd64
 go build -trimpath -ldflags='-s -w' -o olcrtc-linux-<arch> ./cmd/olcrtc
 ```
 
-Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions runs this on `ubuntu-latest`. Do not clone or compile OlcRTC on the router.
+Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions runs this on `ubuntu-latest` and publishes **only** on a pushed `v*` tag. Do not clone or compile OlcRTC on the router. Supported RAM floor is 512 MiB.
 
 ## Documents used
 
