@@ -34,12 +34,14 @@
 С консоли роутера, одна строка (подставьте Room ID из Телемоста):
 
 ```sh
-ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && sh /tmp/olcrtc-install.sh
+wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
+
+`ROOM_ID` должен стоять **перед `sh`**, не перед `wget`: иначе скрипт его не увидит.
 
 Дальше скрипт **сам** скачает `olcrtc-linux-arm64` или `olcrtc-linux-amd64` из того же Release, сверит SHA-256, поставит `/usr/bin/olcrtc`, YAML и procd. Бинарник руками качать не нужно.
 
-Свой ключ (64 hex) — добавьте `ENCRYPTION_KEY='…'` в ту же строку. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
+Свой ключ (64 hex) — добавьте `ENCRYPTION_KEY='…'` тоже перед `sh`. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
 
 Это prerelease: берите URL с `v0.0.1-untested`, не `/releases/latest`. Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`.
 
@@ -113,10 +115,10 @@ wget -O /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcr
 Current version is `0.0.1-untested` (prerelease). One line on the router:
 
 ```sh
-ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && sh /tmp/olcrtc-install.sh
+wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
-That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `/releases/latest` or `sh -c "$(wget -qO- …)"`. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).
+Put `ROOM_ID` on `sh`, not on `wget`. That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `/releases/latest` or `sh -c "$(wget -qO- …)"`. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).
 
 ## License
 

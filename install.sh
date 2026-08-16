@@ -2,10 +2,11 @@
 # oneclick-olcrtc-wrt — OpenWrt installer for current OlcRTC mode:srv
 # (Yandex Telemost + vp8channel).
 #
-# One line (OpenWrt wget / uclient-fetch), not raw main:
-#   ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh \
+# One line (OpenWrt wget / uclient-fetch), not raw main.
+# ROOM_ID must be on the `sh` after && — a prefix only applies to wget.
+#   wget -O /tmp/olcrtc-install.sh \
 #     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh \
-#     && sh /tmp/olcrtc-install.sh
+#     && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # The script then downloads olcrtc-linux-arm64|amd64 from the same Release.
 # Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
 #
@@ -193,10 +194,14 @@ extract_existing_key() {
 }
 
 generate_key() {
+    # Default OpenWrt BusyBox has no od/hexdump/xxd. sha256sum is required
+    # later to verify the ELF; hash 32 random bytes to get 64 hex chars.
+    command -v sha256sum >/dev/null 2>&1 ||
+        die "sha256sum is required to generate an encryption key"
     key="$(
         dd if=/dev/urandom bs=32 count=1 2>/dev/null |
-            od -An -tx1 |
-            tr -d ' \n'
+            sha256sum |
+            awk '{print $1}'
     )"
     is_hex64 "$key" || die "failed to generate a 32-byte encryption key"
     printf '%s' "$key"
@@ -340,8 +345,8 @@ EOF_INIT
 }
 
 is_elf() {
-    hex="$(od -An -tx1 -N 4 "$1" 2>/dev/null | tr -d ' \n\t')"
-    [ "$hex" = "7f454c46" ]
+    # 0x7f 'E' 'L' 'F'. Avoid od: it is not in default OpenWrt BusyBox.
+    [ "$(dd if="$1" bs=4 count=1 2>/dev/null)" = "$(printf '\177ELF')" ]
 }
 
 validate_settings() {

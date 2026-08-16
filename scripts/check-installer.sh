@@ -53,6 +53,22 @@ fi
 yaml3=$(ROOM_ID="$ROOM" ENCRYPTION_KEY="$KEY" DEBUG=1 sh "$INSTALL" --dump-config)
 printf '%s\n' "$yaml3" | grep -q 'debug: false'
 
+gen_yaml=$(ROOM_ID="$ROOM" ENCRYPTION_KEY='' sh "$INSTALL" --dump-config)
+gen_key="$(
+    printf '%s\n' "$gen_yaml" |
+        sed -n "s/^[[:space:]]*key:[[:space:]]*['\"]*\\([0-9A-Fa-f]\\{64\\}\\)['\"]*[[:space:]]*\$/\\1/p"
+)"
+case "$gen_key" in
+    *[!0-9A-Fa-f]* | '')
+        printf '%s\n' "generated key is not 64 hex: $gen_key" >&2
+        exit 1
+        ;;
+esac
+[ "${#gen_key}" -eq 64 ] || {
+    printf '%s\n' "generated key length ${#gen_key}" >&2
+    exit 1
+}
+
 init=$(ROOM_ID="$ROOM" ENCRYPTION_KEY="$KEY" sh "$INSTALL" --dump-init)
 printf '%s\n' "$init" | grep -q 'PROG="/usr/bin/olcrtc"'
 printf '%s\n' "$init" | grep -q 'CONF="/etc/olcrtc/server.yaml"'

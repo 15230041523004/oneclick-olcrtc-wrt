@@ -129,7 +129,7 @@ jobs:
             Install from **this Release**, not from the repo root. One line on the router:
 
             ```
-            ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/${{ steps.meta.outputs.tag }}/install.sh && sh /tmp/olcrtc-install.sh
+            wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/${{ steps.meta.outputs.tag }}/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
             ```
 
             That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from these assets.
