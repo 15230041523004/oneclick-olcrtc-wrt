@@ -1,5 +1,7 @@
 # oneclick-olcrtc-wrt
 
+**Версия `0.0.1-untested`.** Пока нет прогона на живом OpenWrt + Telemost + клиент. Это не релиз для продакшена: нет Release GO (публичных assets) и нет Deployment GO.
+
 Однокомандная установка **текущего** [OlcRTC](https://github.com/openlibrecommunity/olcrtc) в режиме **`mode: srv`** на OpenWrt.
 
 Роутер становится выходным узлом через **Yandex Telemost + `vp8channel`**. Клиент (`cnc` / Android) заходит в ту же комнату и ходит в интернет через WAN роутера.

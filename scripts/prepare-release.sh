@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bake INSTALLER_RELEASE into install.sh and stage release files in dist/.
-# Usage: sh scripts/prepare-release.sh v0.0.1
+# Usage: sh scripts/prepare-release.sh v0.0.1-untested
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
