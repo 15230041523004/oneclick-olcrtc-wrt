@@ -1,0 +1,46 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+START=95
+STOP=10
+
+PROG="/usr/bin/olcrtc"
+CONF="/etc/olcrtc/server.yaml"
+
+
+start_service() {
+    [ -x "$PROG" ] || return 1
+    [ -r "$CONF" ] || return 1
+
+    procd_open_instance
+
+    # Current OlcRTC CLI:
+    #
+    #     olcrtc /path/to/server.yaml
+    #
+    # Process stays in foreground; procd supervises it.
+    procd_set_param command "$PROG" "$CONF"
+
+    # threshold=3600 s
+    # retry delay=5 s
+    # retry=0 => retry indefinitely
+    #
+    # This is useful on LTE/5G routers where WAN may become available
+    # somewhat later than the service during boot.
+    procd_set_param respawn 3600 5 0
+
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+
+    # Store this file as part of the procd service state.
+    procd_set_param file "$CONF"
+
+    procd_close_instance
+}
+
+
+reload_service() {
+    stop
+    start
+}

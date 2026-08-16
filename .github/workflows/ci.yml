@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck and dash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck dash
+
+      - name: POSIX syntax
+        run: |
+          sh -n install.sh
+          sh -n uninstall.sh
+          sh -n scripts/build-olcrtc.sh
+          sh -n scripts/check-installer.sh
+          dash -n install.sh
+          dash -n uninstall.sh
+          dash -n scripts/build-olcrtc.sh
+          dash -n scripts/check-installer.sh
+
+      - name: ShellCheck
+        run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh
+
+      - name: dump-config and dump-uri fixtures
+        run: sh scripts/check-installer.sh
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read versions.env
+        id: ver
+        run: |
+          # shellcheck source=/dev/null
+          . ./versions.env
+          echo "go=$GO_VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$OLCRTC_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.ver.outputs.go }}
+
+      - name: Cross-build linux/arm64 and linux/amd64
+        run: sh scripts/build-olcrtc.sh
+
+      - name: Check release-shaped artifacts
+        run: |
+          test -s dist/olcrtc-linux-arm64
+          test -s dist/olcrtc-linux-amd64
+          test -s dist/SHA256SUMS
+          test -s dist/OLCRTC_COMMIT.txt
+          grep -qx '${{ steps.ver.outputs.commit }}' dist/OLCRTC_COMMIT.txt
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: olcrtc-linux
+          path: |
+            dist/olcrtc-linux-arm64
+            dist/olcrtc-linux-amd64
+            dist/SHA256SUMS
+            dist/OLCRTC_COMMIT.txt

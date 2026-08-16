@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update (empty = snapshot prerelease)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read versions.env
+        id: ver
+        run: |
+          # shellcheck source=/dev/null
+          . ./versions.env
+          echo "go=$GO_VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$OLCRTC_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.ver.outputs.go }}
+
+      - name: Cross-build linux/arm64 and linux/amd64
+        run: sh scripts/build-olcrtc.sh
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'snapshot' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'snapshot' }}
+          prerelease: ${{ github.ref_type != 'tag' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/olcrtc-linux-arm64
+            dist/olcrtc-linux-amd64
+            dist/SHA256SUMS
+            dist/OLCRTC_COMMIT.txt
+          body: |
+            Pinned upstream: `${{ steps.ver.outputs.commit }}`
+
+            Built with `CGO_ENABLED=0` from `openlibrecommunity/olcrtc` (`./cmd/olcrtc`).
+            Installer: `ROOM_ID='…' sh -c "$(wget -qO- https://raw.githubusercontent.com/15230041523004/oneclick-olcrtc-wrt/main/install.sh)"`
