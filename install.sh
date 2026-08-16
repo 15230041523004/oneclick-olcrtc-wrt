@@ -46,7 +46,7 @@ ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
 
-# Empty in git. The release workflow bakes the tag, e.g. v0.1.2, so a
+# Empty in git. The release workflow bakes the tag, e.g. v0.0.1, so a
 # downloaded installer pulls binaries from that same Release — not from
 # a floating main / a different latest.
 INSTALLER_RELEASE="${INSTALLER_RELEASE:-}"
@@ -552,7 +552,7 @@ fetch() {
 release_hint() {
     case "$binary_url" in
         *"/${GITHUB_REPO}/releases/"*)
-            die "$1 (tag v0.1.0 and publish Release assets first, or set BINARY_URL_${arch})"
+            die "$1 (tag v0.0.1 and publish Release assets first, or set BINARY_URL_${arch})"
             ;;
         *)
             die "$1"

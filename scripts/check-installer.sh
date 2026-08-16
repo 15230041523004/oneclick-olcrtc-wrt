@@ -94,10 +94,10 @@ fi
 
 tmpd="${TMPDIR:-/tmp}/olcrtc-prep-$$"
 mkdir -p "$tmpd"
-DIST="$tmpd" sh "$ROOT/scripts/prepare-release.sh" v0.1.2
+DIST="$tmpd" sh "$ROOT/scripts/prepare-release.sh" v0.0.1
 head -n 1 "$tmpd/install.sh" | grep -q '^#!/bin/sh'
 # shellcheck disable=SC2016
-grep -q 'INSTALLER_RELEASE="${INSTALLER_RELEASE:-v0.1.2}"' "$tmpd/install.sh"
+grep -q 'INSTALLER_RELEASE="${INSTALLER_RELEASE:-v0.0.1}"' "$tmpd/install.sh"
 rm -rf "$tmpd"
 
 printf '%s\n' "ALL_CHECKS_PASSED"
