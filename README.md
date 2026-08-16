@@ -1,6 +1,6 @@
 # oneclick-olcrtc-wrt
 
-**Версия `0.0.1-untested`.** Пока нет прогона на живом OpenWrt + Telemost + клиент. Это не релиз для продакшена: нет Release GO (публичных assets) и нет Deployment GO.
+**Версия `0.0.1-untested`.** Ассеты релиза уже опубликованы. Живого прогона OpenWrt + Telemost + клиент ещё нет — это не продакшен.
 
 Однокомандная установка **текущего** [OlcRTC](https://github.com/openlibrecommunity/olcrtc) в режиме **`mode: srv`** на OpenWrt.
 
@@ -26,33 +26,22 @@
    - 256 МиБ — только после отдельного soak, из коробки не обещаем;
    - 128 МиБ — **не поддерживается**.
 4. Свободно ~50 МиБ на overlay **и** ~32 МиБ в `/tmp` (скачивание идёт в RAM-backed tmpfs).
-5. На роутере есть `wget` **или** `uclient-fetch`.
-6. Релиз этого репозитория содержит `install.sh`, `uninstall.sh`, оба ELF и `SHA256SUMS`. Роутер **только скачивает**. Go/mage/исходники на коробку не ставятся.
+5. На роутере есть `wget` (на OpenWrt это обычно `uclient-fetch`).
+6. Роутер **только скачивает** готовые файлы из GitHub Release. Go/mage/исходники на коробку не ставятся.
 
 ## Установка
 
-Не используйте `sh -c "$(wget -qO- …)"`: при 404 это даёт пустой успешный `sh -c`.
-
-Сейчас версия **`0.0.1-untested`**: качайте **конкретный** prerelease, не `latest`. `latest` появится только после стабильного тега без суффикса.
+С консоли роутера, одна строка (подставьте Room ID из Телемоста):
 
 ```sh
-INSTALL_URL='https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh'
-rm -f /tmp/olcrtc-install.sh
-if command -v wget >/dev/null 2>&1; then
-    wget -O /tmp/olcrtc-install.sh "$INSTALL_URL" || exit 1
-elif command -v uclient-fetch >/dev/null 2>&1; then
-    uclient-fetch -O /tmp/olcrtc-install.sh "$INSTALL_URL" || exit 1
-else
-    echo "need wget or uclient-fetch" >&2
-    exit 1
-fi
-head -n 1 /tmp/olcrtc-install.sh | grep -q '^#!/bin/sh' || exit 1
-ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && sh /tmp/olcrtc-install.sh
 ```
 
-Свой ключ (64 hex) — та же схема, плюс `ENCRYPTION_KEY='…'` перед `sh /tmp/olcrtc-install.sh`. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
+Дальше скрипт **сам** скачает `olcrtc-linux-arm64` или `olcrtc-linux-amd64` из того же Release, сверит SHA-256, поставит `/usr/bin/olcrtc`, YAML и procd. Бинарник руками качать не нужно.
 
-Скачанный `install.sh` уже привязан к **тому же тегу**, что и бинарники. Скрипт ничего не спрашивает: качает ELF, проверяет SHA-256 и что это ELF, пишет YAML, ставит procd, ждёт несколько подряд `running: true`, иначе выходит с кодом 1.
+Свой ключ (64 hex) — добавьте `ENCRYPTION_KEY='…'` в ту же строку. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
+
+Это prerelease: берите URL с `v0.0.1-untested`, не `/releases/latest`. Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`.
 
 **URI содержит ключ шифрования.** Не публикуйте его в issue, чате или скриншоте.
 
@@ -107,9 +96,9 @@ curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 
 ## Удаление
 
-Тот же fetch, URL  
-`https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/uninstall.sh`,  
-затем `sh /tmp/olcrtc-uninstall.sh`.
+```sh
+wget -O /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/uninstall.sh && sh /tmp/olcrtc-uninstall.sh
+```
 
 ## Бинарники
 
@@ -121,7 +110,13 @@ curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 
 ## English
 
-Current version is `0.0.1-untested` (prerelease). Fetch `install.sh` from `/releases/download/v0.0.1-untested/`, not `latest`. `latest` is reserved for a later stable tag. Supported RAM floor is **512 MiB**. Do not pipe wget into `sh -c`. See [docs/upstream.md](docs/upstream.md).
+Current version is `0.0.1-untested` (prerelease). One line on the router:
+
+```sh
+ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && sh /tmp/olcrtc-install.sh
+```
+
+That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `/releases/latest` or `sh -c "$(wget -qO- …)"`. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).
 
 ## License
 

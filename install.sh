@@ -2,8 +2,12 @@
 # oneclick-olcrtc-wrt — OpenWrt installer for current OlcRTC mode:srv
 # (Yandex Telemost + vp8channel).
 #
-# Fetch from the same GitHub Release as the binaries (not raw main).
-# wget or uclient-fetch, then run the file. Do not use sh -c "$(wget -qO- …)".
+# One line (OpenWrt wget / uclient-fetch), not raw main:
+#   ROOM_ID='<telemost-room-id>' wget -O /tmp/olcrtc-install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh \
+#     && sh /tmp/olcrtc-install.sh
+# The script then downloads olcrtc-linux-arm64|amd64 from the same Release.
+# Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
 #
 # Dry-run (no OpenWrt, no downloads):
 #   ROOM_ID=... ENCRYPTION_KEY=... sh install.sh --dump-config

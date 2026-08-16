@@ -1,9 +1,10 @@
 #!/bin/sh
 # oneclick-olcrtc-wrt — remove the OpenWrt srv install created by install.sh
 #
-# Fetch uninstall.sh from the same GitHub Release as install.sh.
-# For 0.0.1-untested use /releases/download/v0.0.1-untested/uninstall.sh
-# (not latest). Do not pipe wget into sh -c.
+# One line (not latest, not sh -c "$(wget -qO- …)"):
+#   wget -O /tmp/olcrtc-uninstall.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/uninstall.sh \
+#     && sh /tmp/olcrtc-uninstall.sh
 set -eu
 
 INSTALL_BIN="${INSTALL_BIN:-/usr/bin/olcrtc}"
