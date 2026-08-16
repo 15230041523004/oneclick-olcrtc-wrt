@@ -347,9 +347,9 @@ validate_settings() {
     [ "$TRANSPORT" = "vp8channel" ] ||
         die "TRANSPORT must be vp8channel in this installer"
 
-    [ -n "$ROOM_ID" ] &&
-        [ "$ROOM_ID" != "REPLACE_WITH_TELEMOST_ROOM_ID" ] ||
+    if [ -z "$ROOM_ID" ] || [ "$ROOM_ID" = "REPLACE_WITH_TELEMOST_ROOM_ID" ]; then
         die "set ROOM_ID (environment variable or the header of this script)"
+    fi
 
     reject_yaml_string "$ROOM_ID" "ROOM_ID"
 
@@ -366,8 +366,9 @@ validate_settings() {
             ;;
     esac
 
-    [ -n "$VP8_FPS" ] && [ -n "$VP8_BATCH_SIZE" ] && [ -n "$UPSTREAM_PROXY_PORT" ] ||
+    if [ -z "$VP8_FPS" ] || [ -z "$VP8_BATCH_SIZE" ] || [ -z "$UPSTREAM_PROXY_PORT" ]; then
         die "VP8_FPS, VP8_BATCH_SIZE and UPSTREAM_PROXY_PORT must be integers"
+    fi
 
     reject_yaml_string "$DNS_SERVER" "DNS_SERVER"
     reject_yaml_string "$UPSTREAM_PROXY_ADDR" "UPSTREAM_PROXY_ADDR"
