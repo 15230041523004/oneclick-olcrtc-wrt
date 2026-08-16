@@ -5,8 +5,8 @@ USE_PROCD=1
 START=95
 STOP=10
 
-PROG="/usr/bin/olcrtc"
-CONF="/etc/olcrtc/server.yaml"
+PROG="@INSTALL_BIN@"
+CONF="@CONFIG_FILE@"
 
 
 start_service() {
@@ -21,6 +21,11 @@ start_service() {
     #
     # Process stays in foreground; procd supervises it.
     procd_set_param command "$PROG" "$CONF"
+
+    # Cap Go heap so VP8 on a 512 MiB LTE box is less likely to OOM
+    # the whole router. Do not set RLIMIT_AS: Go reserves a large
+    # virtual address space and a tight "as=" limit prevents startup.
+    procd_set_param env GOMEMLIMIT="@GOMEMLIMIT@" GOGC=50
 
     # threshold=3600 s
     # retry delay=5 s

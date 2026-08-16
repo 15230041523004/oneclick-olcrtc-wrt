@@ -53,4 +53,29 @@ fi
 yaml3=$(ROOM_ID="$ROOM" ENCRYPTION_KEY="$KEY" DEBUG=1 sh "$INSTALL" --dump-config)
 printf '%s\n' "$yaml3" | grep -q 'debug: false'
 
+init=$(ROOM_ID="$ROOM" ENCRYPTION_KEY="$KEY" sh "$INSTALL" --dump-init)
+printf '%s\n' "$init" | grep -q 'PROG="/usr/bin/olcrtc"'
+printf '%s\n' "$init" | grep -q 'CONF="/etc/olcrtc/server.yaml"'
+printf '%s\n' "$init" | grep -q 'GOMEMLIMIT="80MiB"'
+
+init2=$(
+    ROOM_ID="$ROOM" ENCRYPTION_KEY="$KEY" \
+        INSTALL_BIN=/opt/olcrtc CONFIG_FILE=/opt/olcrtc.yaml GOMEMLIMIT=64MiB \
+        sh "$INSTALL" --dump-init
+)
+printf '%s\n' "$init2" | grep -q 'PROG="/opt/olcrtc"'
+printf '%s\n' "$init2" | grep -q 'CONF="/opt/olcrtc.yaml"'
+printf '%s\n' "$init2" | grep -q 'GOMEMLIMIT="64MiB"'
+
+from_file=$(
+    sed -e 's#@INSTALL_BIN@#/usr/bin/olcrtc#g' \
+        -e 's#@CONFIG_FILE@#/etc/olcrtc/server.yaml#g' \
+        -e 's#@GOMEMLIMIT@#80MiB#g' \
+        "$ROOT/files/olcrtc-srv.init"
+)
+if [ "$init" != "$from_file" ]; then
+    printf '%s\n' "init template drifted from files/olcrtc-srv.init" >&2
+    exit 1
+fi
+
 printf '%s\n' "ALL_CHECKS_PASSED"

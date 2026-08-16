@@ -36,9 +36,9 @@ rmdir "$CONFIG_DIR" 2>/dev/null || true
 if [ -f "$SYSUPGRADE_CONF" ]; then
     tmp="/tmp/olcrtc-sysupgrade.$$"
     {
-        grep -v '^/usr/bin/olcrtc$' "$SYSUPGRADE_CONF" |
-            grep -v '^/etc/olcrtc/$' |
-            grep -v '^/etc/init.d/olcrtc-srv$' || true
+        grep -vxF "$INSTALL_BIN" "$SYSUPGRADE_CONF" |
+            grep -vxF "${CONFIG_DIR}/" |
+            grep -vxF "$INIT_FILE" || true
     } >"$tmp"
     cat "$tmp" >"$SYSUPGRADE_CONF"
     rm -f "$tmp"

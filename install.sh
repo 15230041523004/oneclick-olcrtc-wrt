@@ -74,12 +74,18 @@ STARTUP_WAIT="${STARTUP_WAIT:-6}"
 MIN_FREE_KB="${MIN_FREE_KB:-49152}"
 URI_LABEL="${URI_LABEL:-OpenWRT-Telemost-srv}"
 
+# Go heap cap for 512 MiB LTE routers (AX3600-class). Override if needed.
+GOMEMLIMIT="${GOMEMLIMIT:-80MiB}"
+MEM_WARN_KB="${MEM_WARN_KB:-131072}"
+
 ###############################################################################
 # END USER SETTINGS
 ###############################################################################
 
 DUMP_CONFIG=0
 DUMP_URI=0
+DUMP_INIT=0
+MEM_WARN=""
 
 usage() {
     cat <<'EOF'
@@ -89,6 +95,7 @@ Usage: install.sh [--dump-config|--dump-uri|--help]
 
   --dump-config   print server.yaml to stdout and exit (no install)
   --dump-uri      print the client olcrtc:// URI to stdout and exit
+  --dump-init     print the procd init script to stdout and exit
   --help          show this help
 EOF
 }
@@ -109,6 +116,9 @@ for arg in "$@"; do
             ;;
         --dump-uri)
             DUMP_URI=1
+            ;;
+        --dump-init)
+            DUMP_INIT=1
             ;;
         --help|-h)
             usage
@@ -171,7 +181,7 @@ resolve_encryption_key() {
         return 0
     fi
 
-    if [ "$DUMP_CONFIG" -eq 0 ] && [ "$DUMP_URI" -eq 0 ]; then
+    if [ "$DUMP_CONFIG" -eq 0 ] && [ "$DUMP_URI" -eq 0 ] && [ "$DUMP_INIT" -eq 0 ]; then
         existing="$(extract_existing_key "$CONFIG_FILE" || true)"
         if is_hex64 "$existing"; then
             ENCRYPTION_KEY="$existing"
@@ -242,6 +252,70 @@ write_server_yaml() {
     fi
 }
 
+# Keep this heredoc identical to files/olcrtc-srv.init (CI compares them).
+emit_init_script() {
+    sed -e "s#@INSTALL_BIN@#${INSTALL_BIN}#g" \
+        -e "s#@CONFIG_FILE@#${CONFIG_FILE}#g" \
+        -e "s#@GOMEMLIMIT@#${GOMEMLIMIT}#g" <<'EOF_INIT'
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+START=95
+STOP=10
+
+PROG="@INSTALL_BIN@"
+CONF="@CONFIG_FILE@"
+
+
+start_service() {
+    [ -x "$PROG" ] || return 1
+    [ -r "$CONF" ] || return 1
+
+    procd_open_instance
+
+    # Current OlcRTC CLI:
+    #
+    #     olcrtc /path/to/server.yaml
+    #
+    # Process stays in foreground; procd supervises it.
+    procd_set_param command "$PROG" "$CONF"
+
+    # Cap Go heap so VP8 on a 512 MiB LTE box is less likely to OOM
+    # the whole router. Do not set RLIMIT_AS: Go reserves a large
+    # virtual address space and a tight "as=" limit prevents startup.
+    procd_set_param env GOMEMLIMIT="@GOMEMLIMIT@" GOGC=50
+
+    # threshold=3600 s
+    # retry delay=5 s
+    # retry=0 => retry indefinitely
+    #
+    # This is useful on LTE/5G routers where WAN may become available
+    # somewhat later than the service during boot.
+    procd_set_param respawn 3600 5 0
+
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+
+    # Store this file as part of the procd service state.
+    procd_set_param file "$CONF"
+
+    procd_close_instance
+}
+
+
+reload_service() {
+    stop
+    start
+}
+EOF_INIT
+}
+
+is_elf() {
+    hex="$(od -An -tx1 -N 4 "$1" 2>/dev/null | tr -d ' \n\t')"
+    [ "$hex" = "7f454c46" ]
+}
+
 validate_settings() {
     [ "$PROVIDER" = "telemost" ] ||
         die "PROVIDER must be telemost in this installer"
@@ -297,6 +371,11 @@ if [ "$DUMP_URI" -eq 1 ]; then
     exit 0
 fi
 
+if [ "$DUMP_INIT" -eq 1 ]; then
+    emit_init_script
+    exit 0
+fi
+
 
 ###############################################################################
 # Sanity checks (real install)
@@ -306,6 +385,17 @@ fi
 
 [ -r /etc/openwrt_release ] ||
     die "this installer is intended for OpenWrt"
+
+mem_avail_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
+case "$mem_avail_kb" in
+    '' | *[!0-9]*) ;;
+    *)
+        if [ "$mem_avail_kb" -lt "$MEM_WARN_KB" ]; then
+            MEM_WARN="MemAvailable ${mem_avail_kb} KiB (< ${MEM_WARN_KB} KiB); vp8channel may OOM under load"
+            log "WARNING: $MEM_WARN"
+        fi
+        ;;
+esac
 
 
 ###############################################################################
@@ -485,6 +575,10 @@ fi
 
 [ -s "$tmp" ] || release_hint "downloaded binary is empty"
 
+if ! is_elf "$tmp"; then
+    release_hint "downloaded file is not an ELF binary (got an HTML error page or the wrong asset)"
+fi
+
 if [ -n "$binary_sha" ]; then
     command -v sha256sum >/dev/null 2>&1 ||
         die "sha256sum is required to verify the binary"
@@ -521,55 +615,7 @@ log "writing $CONFIG_FILE"
 write_server_yaml "$CONFIG_FILE"
 
 log "writing $INIT_FILE"
-cat >"$INIT_FILE" <<'EOF_INIT'
-#!/bin/sh /etc/rc.common
-
-USE_PROCD=1
-
-START=95
-STOP=10
-
-PROG="/usr/bin/olcrtc"
-CONF="/etc/olcrtc/server.yaml"
-
-
-start_service() {
-    [ -x "$PROG" ] || return 1
-    [ -r "$CONF" ] || return 1
-
-    procd_open_instance
-
-    # Current OlcRTC CLI:
-    #
-    #     olcrtc /path/to/server.yaml
-    #
-    # Process stays in foreground; procd supervises it.
-    procd_set_param command "$PROG" "$CONF"
-
-    # threshold=3600 s
-    # retry delay=5 s
-    # retry=0 => retry indefinitely
-    #
-    # This is useful on LTE/5G routers where WAN may become available
-    # somewhat later than the service during boot.
-    procd_set_param respawn 3600 5 0
-
-    procd_set_param stdout 1
-    procd_set_param stderr 1
-
-    # Store this file as part of the procd service state.
-    procd_set_param file "$CONF"
-
-    procd_close_instance
-}
-
-
-reload_service() {
-    stop
-    start
-}
-EOF_INIT
-
+emit_init_script >"$INIT_FILE"
 chmod 0755 "$INIT_FILE"
 
 ensure_sysupgrade_entry() {
@@ -648,6 +694,12 @@ $CONFIG_FILE
 Service:
 $INIT_FILE
 
+GOMEMLIMIT:
+$GOMEMLIMIT
+${MEM_WARN:+
+WARNING:
+$MEM_WARN
+}
 
 Verification:
 
