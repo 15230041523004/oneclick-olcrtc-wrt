@@ -33,8 +33,10 @@
 
 Не используйте `sh -c "$(wget -qO- …)"`: при 404 это даёт пустой успешный `sh -c`.
 
+Сейчас версия **`0.0.1-untested`**: качайте **конкретный** prerelease, не `latest`. `latest` появится только после стабильного тега без суффикса.
+
 ```sh
-INSTALL_URL='https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh'
+INSTALL_URL='https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh'
 rm -f /tmp/olcrtc-install.sh
 if command -v wget >/dev/null 2>&1; then
     wget -O /tmp/olcrtc-install.sh "$INSTALL_URL" || exit 1
@@ -105,7 +107,9 @@ curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 
 ## Удаление
 
-Тот же fetch, URL `.../releases/latest/download/uninstall.sh`, затем `sh /tmp/olcrtc-uninstall.sh`.
+Тот же fetch, URL  
+`https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/uninstall.sh`,  
+затем `sh /tmp/olcrtc-uninstall.sh`.
 
 ## Бинарники
 
@@ -117,7 +121,7 @@ curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 
 ## English
 
-Release GO: GitHub Release assets + installer that fails closed. Deployment GO: reboot and a phone SOCKS check. Supported RAM floor is **512 MiB**. Fetch `install.sh` from `releases/latest/download` with `wget` or `uclient-fetch` into a file; do not pipe wget into `sh -c`. See [docs/upstream.md](docs/upstream.md).
+Current version is `0.0.1-untested` (prerelease). Fetch `install.sh` from `/releases/download/v0.0.1-untested/`, not `latest`. `latest` is reserved for a later stable tag. Supported RAM floor is **512 MiB**. Do not pipe wget into `sh -c`. See [docs/upstream.md](docs/upstream.md).
 
 ## License
 

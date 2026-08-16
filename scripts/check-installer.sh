@@ -92,12 +92,18 @@ if [ "$init" != "$from_file" ]; then
     exit 1
 fi
 
+ver="$(tr -d ' \n\r' < "$ROOT/VERSION")"
+[ -n "$ver" ] || {
+    printf '%s\n' "VERSION is empty" >&2
+    exit 1
+}
+tag="v${ver}"
+
 tmpd="${TMPDIR:-/tmp}/olcrtc-prep-$$"
 mkdir -p "$tmpd"
-DIST="$tmpd" sh "$ROOT/scripts/prepare-release.sh" v0.0.1-untested
+DIST="$tmpd" sh "$ROOT/scripts/prepare-release.sh" "$tag"
 head -n 1 "$tmpd/install.sh" | grep -q '^#!/bin/sh'
-# shellcheck disable=SC2016
-grep -q 'INSTALLER_RELEASE="${INSTALLER_RELEASE:-v0.0.1-untested}"' "$tmpd/install.sh"
+grep -q "INSTALLER_RELEASE=\"\${INSTALLER_RELEASE:-${tag}}\"" "$tmpd/install.sh"
 rm -rf "$tmpd"
 
 printf '%s\n' "ALL_CHECKS_PASSED"

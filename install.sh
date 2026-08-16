@@ -84,9 +84,9 @@ SYSUPGRADE_CONF="${SYSUPGRADE_CONF:-/etc/sysupgrade.conf}"
 # procd must stay running for STABLE_NEEDED samples, STABLE_INTERVAL
 # seconds apart, within STABLE_MAX seconds. One "running" snapshot is
 # not enough: respawn can look alive while the process is crash-looping.
-STABLE_NEEDED="${STABLE_NEEDED:-3}"
-STABLE_INTERVAL="${STABLE_INTERVAL:-5}"
-STABLE_MAX="${STABLE_MAX:-45}"
+STABLE_NEEDED="${STABLE_NEEDED:-4}"
+STABLE_INTERVAL="${STABLE_INTERVAL:-10}"
+STABLE_MAX="${STABLE_MAX:-60}"
 
 MIN_FREE_KB="${MIN_FREE_KB:-49152}"
 MIN_TMP_KB="${MIN_TMP_KB:-32768}"
@@ -676,28 +676,46 @@ log "enabling procd service"
 log "starting OlcRTC server"
 "$INIT_FILE" restart
 
-procd_is_running() {
+procd_instance_pid() {
     status_json="$(
         ubus call service list "{\"name\":\"${SERVICE_NAME}\"}" 2>/dev/null || true
     )"
     printf '%s' "$status_json" |
-        grep -Eq '"running"[[:space:]]*:[[:space:]]*true'
+        grep -Eq '"running"[[:space:]]*:[[:space:]]*true' || return 1
+    # First numeric pid in the instance blob. A respawn changes this value.
+    printf '%s' "$status_json" |
+        tr ',' '\n' |
+        sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
+        head -n 1
 }
 
 stable=0
+seen_pid=""
 elapsed=0
 while [ "$elapsed" -lt "$STABLE_MAX" ]; do
-    if procd_is_running; then
-        stable=$((stable + 1))
-        log "procd running (${stable}/${STABLE_NEEDED})"
+    pid="$(procd_instance_pid || true)"
+    if [ -n "$pid" ]; then
+        if [ -z "$seen_pid" ]; then
+            seen_pid="$pid"
+            stable=1
+            log "procd pid ${pid} (${stable}/${STABLE_NEEDED})"
+        elif [ "$pid" = "$seen_pid" ]; then
+            stable=$((stable + 1))
+            log "procd pid ${pid} still running (${stable}/${STABLE_NEEDED})"
+        else
+            log "procd pid changed ${seen_pid} -> ${pid}; reset (respawn/crash-loop)"
+            seen_pid="$pid"
+            stable=1
+        fi
         if [ "$stable" -ge "$STABLE_NEEDED" ]; then
             break
         fi
     else
         if [ "$stable" -gt 0 ]; then
-            log "procd dropped; resetting stability counter"
+            log "procd not running; resetting stability counter"
         fi
         stable=0
+        seen_pid=""
     fi
     sleep "$STABLE_INTERVAL"
     elapsed=$((elapsed + STABLE_INTERVAL))

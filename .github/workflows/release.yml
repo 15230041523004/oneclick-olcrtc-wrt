@@ -17,6 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Tag must match VERSION
+        run: |
+          want="v$(tr -d ' \n\r' < VERSION)"
+          echo "tag=${GITHUB_REF_NAME} version=${want}"
+          test "${GITHUB_REF_NAME}" = "$want"
+
       - name: Install shellcheck and dash
         run: |
           sudo apt-get update
@@ -77,7 +83,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-untested') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
