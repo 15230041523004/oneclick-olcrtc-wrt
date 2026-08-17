@@ -1,6 +1,6 @@
 # oneclick-olcrtc-wrt
 
-**Версия `0.0.1`.** Прогнано на OpenWrt (Xiaomi AX3600) + Yandex Telemost + [olcbox](https://github.com/alananisimov/olcbox).
+**Версия `0.0.1`.** Прогнано на OpenWrt (Xiaomi AX3000-3600) + Yandex Telemost + [olcbox](https://github.com/alananisimov/olcbox).
 
 Однокомандная установка **текущего** [OlcRTC](https://github.com/openlibrecommunity/olcrtc) в режиме **`mode: srv`** на OpenWrt.
 
