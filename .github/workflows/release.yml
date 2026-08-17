@@ -136,5 +136,4 @@ jobs:
 
             Assets: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
-            Release GO: these assets + a stable procd start.
-            Deployment GO: reboot + phone `curl --socks5-hostname 127.0.0.1:8808`.
+            Verified client: olcbox with the same Room ID and key. owenclave / veil / raw cnc are unproven.

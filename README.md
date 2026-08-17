@@ -1,21 +1,14 @@
 # oneclick-olcrtc-wrt
 
-**Версия `0.0.1-untested`.** Ассеты релиза уже опубликованы. Живого прогона OpenWrt + Telemost + клиент ещё нет — это не продакшен.
+**Версия `0.0.1`.** Прогнано на OpenWrt (Xiaomi AX3600) + Yandex Telemost + [olcbox](https://github.com/alananisimov/olcbox).
 
 Однокомандная установка **текущего** [OlcRTC](https://github.com/openlibrecommunity/olcrtc) в режиме **`mode: srv`** на OpenWrt.
 
-Роутер становится выходным узлом через **Yandex Telemost + `vp8channel`**. Клиент (`cnc` / Android) заходит в ту же комнату и ходит в интернет через WAN роутера.
+Роутер становится выходным узлом через **Yandex Telemost + `vp8channel`**. Клиент заходит в ту же комнату и ходит в интернет через WAN роутера.
 
 Это **не** клиентский TUN/LuCI-пакет вроде `alekvol/openwrt-olcrtc`. Старый CLI (`-mode cnc -carrier …`) и сборки v0.1.2 с текущими клиентами **не соединяются** (другой wire-format, OLC2).
 
-Два разных статуса готовности:
-
-| Статус | Что значит |
-|---|---|
-| **Release GO** | URL релиза отвечают, installer запускается, 404/HTML не маскируются, procd **стабильно** держит процесс |
-| **Deployment GO** | после reboot клиент проходит `curl --socks5-hostname 127.0.0.1:8808` через ту же Telemost-комнату |
-
-Этот репозиторий закрывает Release GO, когда в GitHub Release лежат installer и ELF. Push в `main` при `VERSION=*-untested` сам пересобирает **prerelease** `v0.0.1-untested`. Корень репозитория — исходники, не канал установки. Deployment GO проверяется на роутере и телефоне.
+Корень репозитория — исходники, не канал установки. Ставить нужно файлы из [GitHub Release](https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest). Стабильный тег (`v0.0.1`) публикуется только пушем тега, не каждым коммитом в `main`.
 
 ## Что нужно заранее
 
@@ -34,7 +27,7 @@
 С консоли роутера, одна строка (подставьте Room ID из Телемоста):
 
 ```sh
-wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
 `ROOM_ID` должен стоять **перед `sh`**, не перед `wget`: иначе скрипт его не увидит.
@@ -43,7 +36,7 @@ wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc
 
 Свой ключ (64 hex) — добавьте `ENCRYPTION_KEY='…'` тоже перед `sh`. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
 
-Это prerelease: берите URL с `v0.0.1-untested`, не `/releases/latest`. Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`.
+Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`. Pin на конкретный тег: замените `latest/download` на `download/v0.0.1`.
 
 **URI содержит ключ шифрования.** Не публикуйте его в issue, чате или скриншоте.
 
@@ -75,36 +68,38 @@ wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc
 
 Не ставятся: `kmod-tun`, `hev-socks5-tunnel`, LuCI, локальный SOCKS на роутере.
 
-## Проверка (Release GO на роутере)
+## Проверка на роутере
 
 ```sh
 ubus call service list '{"name":"olcrtc-srv"}'
 logread | grep -i olcrtc | tail -n 80
 ```
 
-Несколько выборок подряд должны показывать `"running": true`. Это процесс, не туннель.
+В JSON должно быть `"running": true`. В логе — `Link connected`. Это процесс и вход в комнату Telemost, не проверка телефона.
 
-## Клиент (Deployment GO)
+## Клиент
 
-Нужен **текущий** OLC2-клиент с тем же Room ID и ключом: [owenclave](https://github.com/owenewans/owenclave), [veil](https://github.com/venterum/veil), [olcbox](https://github.com/alananisimov/olcbox) или свой `cnc`.
+Проверен и работает из коробки с URI этого инсталлятора: **[olcbox](https://github.com/alananisimov/olcbox)**. Тот же Room ID и ключ, что на роутере.
 
-После reboot роутера, на клиенте:
+Не проверены на этой связке (рабочей инструкции нет): [owenclave](https://github.com/owenewans/owenclave), [veil](https://github.com/venterum/veil), голый `cnc`. owenclave с той же конфигурацией, что принимает olcbox, туннель не поднял.
+
+Проверка на клиенте (порт слушает телефон / ПК, не роутер):
 
 ```sh
 curl --socks5-hostname 127.0.0.1:8808 https://icanhazip.com
 ```
 
-Должен вернуться адрес выхода **роутера / оператора роутера**. Порт 8808 слушает телефон/ПК, не роутер.
+Должен вернуться адрес выхода **роутера / оператора роутера**.
 
 ## Удаление
 
 ```sh
-wget -O /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/uninstall.sh && sh /tmp/olcrtc-uninstall.sh
+wget -O /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/uninstall.sh && sh /tmp/olcrtc-uninstall.sh
 ```
 
 ## Бинарники
 
-Их собирает **GitHub Actions** из зафиксированного коммита (`versions.env`) и кладёт **в GitHub Release**, не в корень репо. Пока `VERSION` с суффиксом `-untested`, каждый push в `main` обновляет prerelease `v0.0.1-untested` (это не `latest`). Стабильный `0.0.1` без суффикса выходит только с тега `v0.0.1`.
+Их собирает **GitHub Actions** из зафиксированного коммита (`versions.env`) и кладёт **в GitHub Release**, не в корень репо. Стабильный `0.0.1` выходит тегом `v0.0.1` (`/releases/latest`).
 
 Ассеты: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
@@ -112,13 +107,13 @@ wget -O /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcr
 
 ## English
 
-Current version is `0.0.1-untested` (prerelease). One line on the router:
+Version `0.0.1`. Tested on OpenWrt + Telemost + [olcbox](https://github.com/alananisimov/olcbox). One line on the router:
 
 ```sh
-wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
-Put `ROOM_ID` on `sh`, not on `wget`. That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `/releases/latest` or `sh -c "$(wget -qO- …)"`. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).
+Put `ROOM_ID` on `sh`, not on `wget`. That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `sh -c "$(wget -qO- …)"`. olcbox is the verified phone client; owenclave / veil / raw `cnc` are unproven here. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).
 
 ## License
 

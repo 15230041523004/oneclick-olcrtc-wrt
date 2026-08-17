@@ -5,7 +5,7 @@
 # One line (OpenWrt wget / uclient-fetch), not raw main.
 # ROOM_ID must be on the `sh` after && — a prefix only applies to wget.
 #   wget -O /tmp/olcrtc-install.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.1-untested/install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
 #     && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # The script then downloads olcrtc-linux-arm64|amd64 from the same Release.
 # Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
@@ -51,7 +51,7 @@ ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
 
-# Empty in git. The release workflow bakes the tag, e.g. v0.0.1-untested, so a
+# Empty in git. The release workflow bakes the tag, e.g. v0.0.1, so a
 # downloaded installer pulls binaries from that same Release — not from
 # a floating main / a different latest.
 INSTALLER_RELEASE="${INSTALLER_RELEASE:-}"
@@ -562,7 +562,7 @@ fetch() {
 release_hint() {
     case "$binary_url" in
         *"/${GITHUB_REPO}/releases/"*)
-            die "$1 (tag v0.0.1-untested and publish Release assets first, or set BINARY_URL_${arch})"
+            die "$1 (tag v0.0.1 and publish Release assets first, or set BINARY_URL_${arch})"
             ;;
         *)
             die "$1"

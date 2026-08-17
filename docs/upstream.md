@@ -9,7 +9,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64|amd64
 go build -trimpath -ldflags='-s -w' -o olcrtc-linux-<arch> ./cmd/olcrtc
 ```
 
-Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions runs this on `ubuntu-latest` and publishes **only** on a pushed `v*` tag. Do not clone or compile OlcRTC on the router. Supported RAM floor is 512 MiB.
+Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions publishes a stable release only from a pushed `v*` tag that matches `VERSION` (no `-untested` / `-alpha` / `-rc` suffix). Do not clone or compile OlcRTC on the router. Supported RAM floor is 512 MiB.
 
 ## Documents used
 
@@ -28,4 +28,6 @@ Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Ac
 - Telemost + `datachannel` / `seichannel` — not supported by current upstream
 - `cmd/olcrtc-cgo`, armv7, mips — not official `mage cross` Linux targets
 
-Phone / `cnc` must be a current OLC2 build: [owenewans/owenclave](https://github.com/owenewans/owenclave), [venterum/veil](https://github.com/venterum/veil), [alananisimov/olcbox](https://github.com/alananisimov/olcbox), or a self-built current `olcrtc`.
+Verified phone client for this installer: [alananisimov/olcbox](https://github.com/alananisimov/olcbox) (same Room ID + key / `olcrtc://` URI).
+
+Unproven on this OpenWrt + Telemost path: [owenewans/owenclave](https://github.com/owenewans/owenclave), [venterum/veil](https://github.com/venterum/veil), and a self-built `cnc`. owenclave did not bring the tunnel up with the same config olcbox accepts.
