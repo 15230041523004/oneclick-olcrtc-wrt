@@ -31,6 +31,6 @@ The same Linux ELF is used on OpenWrt (procd) and on Debian-family VDS (systemd)
 - Telemost + `datachannel` / `seichannel` — not supported by current upstream
 - `cmd/olcrtc-cgo`, armv7, mips — not official `mage cross` Linux targets
 
-Verified phone client for this installer: [alananisimov/olcbox](https://github.com/alananisimov/olcbox) (same Room ID + key / `olcrtc://` URI).
+Verified phone client for this installer: [alananisimov/olcbox](https://github.com/alananisimov/olcbox) (same Room ID + key / `olcrtc://` URI), live-tested on Debian VDS and previously on OpenWrt.
 
-Unproven on this OpenWrt + Telemost path: [owenewans/owenclave](https://github.com/owenewans/owenclave), [venterum/veil](https://github.com/venterum/veil), and a self-built `cnc`. owenclave did not bring the tunnel up with the same config olcbox accepts.
+Unproven on this Telemost path: [owenewans/owenclave](https://github.com/owenewans/owenclave), [venterum/veil](https://github.com/venterum/veil), and a self-built `cnc`. owenclave did not bring the tunnel up with the same config olcbox accepts.
