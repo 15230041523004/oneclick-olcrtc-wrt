@@ -535,7 +535,11 @@ validate_settings() {
     case "$SERVICE_NAME" in
         '' | .* | -* | *[!A-Za-z0-9_.@-]*) die "invalid SERVICE_NAME" ;;
     esac
-    [ "$STABLE_NEEDED" -gt 0 ] && [ "$STABLE_INTERVAL" -gt 0 ] && [ "$STABLE_MAX" -gt 0 ] ||
+    [ "$STABLE_NEEDED" -gt 0 ] ||
+        die "STABLE_NEEDED, STABLE_INTERVAL and STABLE_MAX must be greater than zero"
+    [ "$STABLE_INTERVAL" -gt 0 ] ||
+        die "STABLE_NEEDED, STABLE_INTERVAL and STABLE_MAX must be greater than zero"
+    [ "$STABLE_MAX" -gt 0 ] ||
         die "STABLE_NEEDED, STABLE_INTERVAL and STABLE_MAX must be greater than zero"
 }
 
