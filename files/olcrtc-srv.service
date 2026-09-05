@@ -1,0 +1,16 @@
+[Unit]
+Description=OlcRTC Telemost server
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=@INSTALL_BIN@ @CONFIG_FILE@
+Environment=GOMEMLIMIT=@GOMEMLIMIT@
+Environment=GOGC=50
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

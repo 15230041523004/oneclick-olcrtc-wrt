@@ -1,12 +1,16 @@
 #!/bin/sh
-# oneclick-olcrtc-wrt — OpenWrt installer for current OlcRTC mode:srv
-# (Yandex Telemost + vp8channel).
+# oneclick-olcrtc-wrt — OpenWrt / Debian-family installer for current OlcRTC
+# mode:srv (Yandex Telemost + vp8channel).
 #
 # One line (OpenWrt wget / uclient-fetch), not raw main.
 # ROOM_ID must be on the `sh` after && — a prefix only applies to wget.
 #   wget -O /tmp/olcrtc-install.sh \
 #     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
 #     && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+# Debian-family VDS (curl; sudo keeps ROOM_ID):
+#   curl -fL -o /tmp/olcrtc-install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
+#     && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # The script then downloads olcrtc-linux-arm64|amd64 from the same Release.
 # Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
 #
@@ -51,7 +55,7 @@ ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
 
-# Empty in git. The release workflow bakes the tag, e.g. v0.0.1, so a
+# Empty in git. The release workflow bakes the tag, e.g. v0.0.2, so a
 # downloaded installer pulls binaries from that same Release — not from
 # a floating main / a different latest.
 INSTALLER_RELEASE="${INSTALLER_RELEASE:-}"
@@ -84,9 +88,13 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/olcrtc}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/olcrtc/server.yaml}"
 INIT_FILE="${INIT_FILE:-/etc/init.d/olcrtc-srv}"
 SERVICE_NAME="${SERVICE_NAME:-olcrtc-srv}"
+SYSTEMD_UNIT_FILE="${SYSTEMD_UNIT_FILE:-/etc/systemd/system/${SERVICE_NAME}.service}"
 SYSUPGRADE_CONF="${SYSUPGRADE_CONF:-/etc/sysupgrade.conf}"
+OS_RELEASE_FILE="${OS_RELEASE_FILE:-/etc/os-release}"
+CA_CERTS_FILE="${CA_CERTS_FILE:-/etc/ssl/certs/ca-certificates.crt}"
+SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/cert.pem}"
 
-# procd must stay running for STABLE_NEEDED samples, STABLE_INTERVAL
+# The service must stay running for STABLE_NEEDED samples, STABLE_INTERVAL
 # seconds apart, within STABLE_MAX seconds. One "running" snapshot is
 # not enough: respawn can look alive while the process is crash-looping.
 STABLE_NEEDED="${STABLE_NEEDED:-4}"
@@ -95,7 +103,7 @@ STABLE_MAX="${STABLE_MAX:-60}"
 
 MIN_FREE_KB="${MIN_FREE_KB:-49152}"
 MIN_TMP_KB="${MIN_TMP_KB:-32768}"
-URI_LABEL="${URI_LABEL:-OpenWRT-Telemost-srv}"
+URI_LABEL="${URI_LABEL:-}"
 
 # Go heap cap for a 512 MiB LTE router (supported minimum).
 GOMEMLIMIT="${GOMEMLIMIT:-80MiB}"
@@ -109,18 +117,25 @@ MEM_WARN_KB="${MEM_WARN_KB:-524288}"
 DUMP_CONFIG=0
 DUMP_URI=0
 DUMP_INIT=0
+DUMP_SYSTEMD=0
 DUMP_RELEASE_URL=0
 MEM_WARN=""
+platform=""
+os_id_like=""
+service_manager=""
 
 usage() {
     cat <<'EOF'
-Usage: install.sh [--dump-config|--dump-uri|--help]
+Usage: install.sh [--dump-config|--dump-uri|--dump-init|--dump-systemd|--dump-release-url|--help]
+
+  Real installation requires root on OpenWrt or Debian-family with systemd.
 
   ROOM_ID is required. ENCRYPTION_KEY is optional (generated or reused).
 
   --dump-config       print server.yaml to stdout and exit (no install)
   --dump-uri          print the client olcrtc:// URI to stdout and exit
   --dump-init         print the procd init script to stdout and exit
+  --dump-systemd      print the systemd unit to stdout and exit (no Room ID needed)
   --dump-release-url  print the binary download base URL and exit
   --help              show this help
 EOF
@@ -145,6 +160,9 @@ for arg in "$@"; do
             ;;
         --dump-init)
             DUMP_INIT=1
+            ;;
+        --dump-systemd)
+            DUMP_SYSTEMD=1
             ;;
         --dump-release-url)
             DUMP_RELEASE_URL=1
@@ -344,9 +362,138 @@ reload_service() {
 EOF_INIT
 }
 
+strip_cr() {
+    old_ifs=$IFS
+    IFS=$(printf '\r')
+    # shellcheck disable=SC2086
+    set -- $1
+    IFS=$old_ifs
+    printf '%s' "${1:-}"
+}
+
+read_os_release() {
+    if [ -r "$OS_RELEASE_FILE" ]; then
+        platform="$(
+            # shellcheck source=/dev/null
+            . "$OS_RELEASE_FILE"
+            printf '%s' "${ID:-}"
+        )"
+        os_id_like="$(
+            # shellcheck source=/dev/null
+            . "$OS_RELEASE_FILE"
+            printf '%s' "${ID_LIKE:-}"
+        )"
+        platform="$(strip_cr "$platform")"
+        os_id_like="$(strip_cr "$os_id_like")"
+    elif [ -r /etc/openwrt_release ]; then
+        platform=openwrt
+        os_id_like=""
+    else
+        die "cannot detect OS (need OpenWrt or Debian-family with systemd)"
+    fi
+}
+
+id_like_has_debian() {
+    # ID_LIKE is a space-separated token list from os-release.
+    # shellcheck disable=SC2086
+    for like in $os_id_like; do
+        [ "$like" = debian ] && return 0
+    done
+    return 1
+}
+
+require_systemd_family() {
+    service_manager=systemd
+    command -v apt-get >/dev/null 2>&1 ||
+        die "apt-get is required on Debian-family systems"
+    command -v systemctl >/dev/null 2>&1 ||
+        die "systemctl is required on Debian-family systems"
+    systemctl show-environment >/dev/null 2>&1 ||
+        die "systemd must be running (a container without systemd is not supported)"
+    validate_systemd_settings
+}
+
+detect_platform() {
+    read_os_release
+
+    case "$platform" in
+        openwrt)
+            service_manager=procd
+            ;;
+        debian | ubuntu)
+            require_systemd_family
+            ;;
+        *)
+            if id_like_has_debian; then
+                require_systemd_family
+            else
+                die "unsupported OS: $platform (need OpenWrt or Debian-family with systemd)"
+            fi
+            ;;
+    esac
+}
+
+validate_systemd_settings() {
+    # These values are embedded in a systemd command and a sed replacement.
+    # Reject expansions and whitespace rather than silently changing a path.
+    for path in "$INSTALL_BIN" "$CONFIG_FILE"; do
+        case "$path" in
+            /*) ;;
+            *) die "systemd binary and config paths must be absolute" ;;
+        esac
+        case "$path" in
+            *[!A-Za-z0-9_./-]*) die "systemd binary and config paths must not contain spaces or special characters" ;;
+        esac
+    done
+    case "$GOMEMLIMIT" in
+        *[!A-Za-z0-9]*) die "invalid GOMEMLIMIT for systemd" ;;
+    esac
+    case "$SYSTEMD_UNIT_FILE" in
+        /*) ;;
+        *) die "SYSTEMD_UNIT_FILE must be absolute" ;;
+    esac
+    [ "${SYSTEMD_UNIT_FILE##*/}" = "${SERVICE_NAME}.service" ] ||
+        die "SYSTEMD_UNIT_FILE must be named ${SERVICE_NAME}.service"
+}
+
+# Keep this heredoc identical to files/olcrtc-srv.service (CI compares them).
+emit_systemd_unit() {
+    sed -e "s#@INSTALL_BIN@#$INSTALL_BIN#g" \
+        -e "s#@CONFIG_FILE@#$CONFIG_FILE#g" \
+        -e "s#@GOMEMLIMIT@#$GOMEMLIMIT#g" <<'EOF_SYSTEMD'
+[Unit]
+Description=OlcRTC Telemost server
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=@INSTALL_BIN@ @CONFIG_FILE@
+Environment=GOMEMLIMIT=@GOMEMLIMIT@
+Environment=GOGC=50
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF_SYSTEMD
+}
+
 is_elf() {
     # 0x7f 'E' 'L' 'F'. Avoid od: it is not in default OpenWrt BusyBox.
     [ "$(dd if="$1" bs=4 count=1 2>/dev/null)" = "$(printf '\177ELF')" ]
+}
+
+has_http_downloader() {
+    command -v uclient-fetch >/dev/null 2>&1 && return 0
+    command -v wget >/dev/null 2>&1 && return 0
+    command -v curl >/dev/null 2>&1 && return 0
+    return 1
+}
+
+run_apt_get() {
+    DEBIAN_FRONTEND=noninteractive apt-get "$@"
 }
 
 validate_settings() {
@@ -384,6 +531,12 @@ validate_settings() {
     reject_yaml_string "$UPSTREAM_PROXY_USER" "UPSTREAM_PROXY_USER"
     reject_yaml_string "$UPSTREAM_PROXY_PASS" "UPSTREAM_PROXY_PASS"
     reject_yaml_string "$URI_LABEL" "URI_LABEL"
+
+    case "$SERVICE_NAME" in
+        '' | .* | -* | *[!A-Za-z0-9_.@-]*) die "invalid SERVICE_NAME" ;;
+    esac
+    [ "$STABLE_NEEDED" -gt 0 ] && [ "$STABLE_INTERVAL" -gt 0 ] && [ "$STABLE_MAX" -gt 0 ] ||
+        die "STABLE_NEEDED, STABLE_INTERVAL and STABLE_MAX must be greater than zero"
 }
 
 
@@ -395,6 +548,21 @@ if [ "$DUMP_RELEASE_URL" -eq 1 ]; then
     printf '%s\n' "$RELEASE_BASE_URL"
     exit 0
 fi
+
+if [ "$DUMP_SYSTEMD" -eq 1 ]; then
+    validate_systemd_settings
+    emit_systemd_unit
+    exit 0
+fi
+
+if [ "$DUMP_CONFIG" -eq 0 ] && [ "$DUMP_URI" -eq 0 ] && [ "$DUMP_INIT" -eq 0 ]; then
+    [ "$(id -u)" = "0" ] || die "run as root"
+    detect_platform
+    if [ "$service_manager" = systemd ]; then
+        URI_LABEL="${URI_LABEL:-Debian-Telemost-srv}"
+    fi
+fi
+URI_LABEL="${URI_LABEL:-OpenWRT-Telemost-srv}"
 
 validate_settings
 resolve_encryption_key
@@ -419,11 +587,6 @@ fi
 ###############################################################################
 # Sanity checks (real install)
 ###############################################################################
-
-[ "$(id -u)" = "0" ] || die "run as root"
-
-[ -r /etc/openwrt_release ] ||
-    die "this installer is intended for OpenWrt"
 
 mem_avail_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
 case "$mem_avail_kb" in
@@ -507,7 +670,7 @@ check_space() {
     fi
 }
 
-check_space /tmp "$MIN_TMP_KB"
+check_space "${TMPDIR:-/tmp}" "$MIN_TMP_KB"
 check_space /usr "$MIN_FREE_KB"
 
 
@@ -515,10 +678,20 @@ check_space /usr "$MIN_FREE_KB"
 # TLS CA bundle (for the installer download and for olcrtc HTTPS)
 ###############################################################################
 
-if [ ! -e /etc/ssl/certs/ca-certificates.crt ] &&
-    [ ! -e /etc/ssl/cert.pem ]; then
+if [ ! -e "$CA_CERTS_FILE" ] &&
+    [ ! -e "$SSL_CERT_FILE" ]; then
 
-    if command -v apk >/dev/null 2>&1; then
+    if [ "$service_manager" = systemd ]; then
+        if has_http_downloader; then
+            log "installing ca-certificates with apt-get"
+            run_apt_get update
+            run_apt_get install -y --no-install-recommends ca-certificates
+        else
+            log "installing ca-certificates and curl with apt-get"
+            run_apt_get update
+            run_apt_get install -y --no-install-recommends ca-certificates curl
+        fi
+    elif command -v apk >/dev/null 2>&1; then
         log "installing ca-bundle with apk"
         apk update
         apk add ca-bundle
@@ -527,7 +700,7 @@ if [ ! -e /etc/ssl/certs/ca-certificates.crt ] &&
         opkg update
         opkg install ca-bundle
     else
-        die "no apk/opkg found and no CA certificate bundle present"
+        die "no supported package manager and no CA certificate bundle present"
     fi
 fi
 
@@ -547,7 +720,10 @@ fetch() {
     elif command -v curl >/dev/null 2>&1; then
         curl -fL --retry 3 -o "$out" "$url" || return 1
     else
-        if command -v apk >/dev/null 2>&1; then
+        if [ "$service_manager" = systemd ]; then
+            run_apt_get update || return 1
+            run_apt_get install -y --no-install-recommends curl || return 1
+        elif command -v apk >/dev/null 2>&1; then
             apk add curl || return 1
         elif command -v opkg >/dev/null 2>&1; then
             opkg update || return 1
@@ -562,7 +738,7 @@ fetch() {
 release_hint() {
     case "$binary_url" in
         *"/${GITHUB_REPO}/releases/"*)
-            die "$1 (tag v0.0.1 and publish Release assets first, or set BINARY_URL_${arch})"
+            die "$1 (tag a release and publish Release assets first, or set BINARY_URL_${arch})"
             ;;
         *)
             die "$1"
@@ -575,8 +751,7 @@ release_hint() {
 # Resolve SHA-256
 ###############################################################################
 
-workdir="/tmp/olcrtc-install.$$"
-mkdir -p "$workdir"
+workdir="$(mktemp -d "${TMPDIR:-/tmp}/olcrtc-install.XXXXXX")"
 trap 'rm -rf "$workdir"' EXIT INT TERM
 
 if [ -z "$binary_sha" ] && [ "$using_release" -eq 1 ]; then
@@ -631,7 +806,12 @@ if [ -n "$binary_sha" ]; then
     log "SHA256 OK"
 fi
 
-if [ -x "$INIT_FILE" ]; then
+if [ "$service_manager" = systemd ]; then
+    if [ -f "$SYSTEMD_UNIT_FILE" ]; then
+        log "stopping $SERVICE_NAME before replacing the binary"
+        systemctl stop "${SERVICE_NAME}.service" || true
+    fi
+elif [ -x "$INIT_FILE" ]; then
     log "stopping $SERVICE_NAME before replacing the binary"
     "$INIT_FILE" stop 2>/dev/null || true
 fi
@@ -649,15 +829,24 @@ fi
 
 
 ###############################################################################
-# Config + procd + sysupgrade
+# Config + service + OpenWrt sysupgrade
 ###############################################################################
 
 log "writing $CONFIG_FILE"
 write_server_yaml "$CONFIG_FILE"
 
-log "writing $INIT_FILE"
-emit_init_script >"$INIT_FILE"
-chmod 0755 "$INIT_FILE"
+if [ "$service_manager" = systemd ]; then
+    service_file="$SYSTEMD_UNIT_FILE"
+    log "writing $service_file"
+    mkdir -p "$(dirname "$service_file")"
+    emit_systemd_unit >"$service_file"
+    chmod 0644 "$service_file"
+else
+    service_file="$INIT_FILE"
+    log "writing $service_file"
+    emit_init_script >"$service_file"
+    chmod 0755 "$service_file"
+fi
 
 ensure_sysupgrade_entry() {
     path="$1"
@@ -671,20 +860,38 @@ ensure_sysupgrade_entry() {
     printf '%s\n' "$path" >>"$SYSUPGRADE_CONF"
 }
 
-ensure_sysupgrade_entry "$INSTALL_BIN"
-ensure_sysupgrade_entry "$CONFIG_DIR/"
-ensure_sysupgrade_entry "$INIT_FILE"
+if [ "$service_manager" = procd ]; then
+    ensure_sysupgrade_entry "$INSTALL_BIN"
+    ensure_sysupgrade_entry "$CONFIG_DIR/"
+    ensure_sysupgrade_entry "$INIT_FILE"
+fi
 
 
 ###############################################################################
 # Enable and start
 ###############################################################################
 
-log "enabling procd service"
-"$INIT_FILE" enable
-
-log "starting OlcRTC server"
-"$INIT_FILE" restart
+log "enabling $service_manager service"
+if [ "$service_manager" = systemd ]; then
+    systemctl daemon-reload
+    systemctl enable "${SERVICE_NAME}.service"
+    log "starting OlcRTC server"
+    systemctl restart "${SERVICE_NAME}.service"
+    status_command="systemctl status ${SERVICE_NAME}.service --no-pager"
+    logs_command="journalctl -u ${SERVICE_NAME}.service -n 80 --no-pager"
+    restart_command="systemctl restart ${SERVICE_NAME}.service"
+    stop_command="systemctl stop ${SERVICE_NAME}.service"
+    start_command="systemctl start ${SERVICE_NAME}.service"
+else
+    "$INIT_FILE" enable
+    log "starting OlcRTC server"
+    "$INIT_FILE" restart
+    status_command="ubus call service list '{\"name\":\"$SERVICE_NAME\"}'"
+    logs_command="logread | grep -i olcrtc | tail -n 80"
+    restart_command="$INIT_FILE restart"
+    stop_command="$INIT_FILE stop"
+    start_command="$INIT_FILE start"
+fi
 
 procd_instance_pid() {
     status_json="$(
@@ -699,21 +906,34 @@ procd_instance_pid() {
         head -n 1
 }
 
+service_instance_pid() {
+    if [ "$service_manager" = systemd ]; then
+        systemctl is-active --quiet "${SERVICE_NAME}.service" || return 1
+        main_pid="$(systemctl show --property=MainPID --value "${SERVICE_NAME}.service")" || return 1
+        case "$main_pid" in
+            '' | 0 | *[!0-9]*) return 1 ;;
+        esac
+        printf '%s\n' "$main_pid"
+    else
+        procd_instance_pid
+    fi
+}
+
 stable=0
 seen_pid=""
 elapsed=0
 while [ "$elapsed" -lt "$STABLE_MAX" ]; do
-    pid="$(procd_instance_pid || true)"
+    pid="$(service_instance_pid || true)"
     if [ -n "$pid" ]; then
         if [ -z "$seen_pid" ]; then
             seen_pid="$pid"
             stable=1
-            log "procd pid ${pid} (${stable}/${STABLE_NEEDED})"
+            log "$service_manager pid ${pid} (${stable}/${STABLE_NEEDED})"
         elif [ "$pid" = "$seen_pid" ]; then
             stable=$((stable + 1))
-            log "procd pid ${pid} still running (${stable}/${STABLE_NEEDED})"
+            log "$service_manager pid ${pid} still running (${stable}/${STABLE_NEEDED})"
         else
-            log "procd pid changed ${seen_pid} -> ${pid}; reset (respawn/crash-loop)"
+            log "$service_manager pid changed ${seen_pid} -> ${pid}; reset (respawn/crash-loop)"
             seen_pid="$pid"
             stable=1
         fi
@@ -722,7 +942,7 @@ while [ "$elapsed" -lt "$STABLE_MAX" ]; do
         fi
     else
         if [ "$stable" -gt 0 ]; then
-            log "procd not running; resetting stability counter"
+            log "$service_manager not running; resetting stability counter"
         fi
         stable=0
         seen_pid=""
@@ -735,7 +955,7 @@ if [ "$stable" -ge "$STABLE_NEEDED" ]; then
     service_state="RUNNING"
     install_ok=1
 else
-    service_state="NOT STABLE - inspect logread"
+    service_state="NOT STABLE - inspect logs below"
     install_ok=0
 fi
 
@@ -757,6 +977,7 @@ Service:        $SERVICE_NAME
 State:          $service_state
 
 Architecture:   $arch
+OS:             $platform
 Mode:           srv
 Provider:       $PROVIDER
 Transport:      $TRANSPORT
@@ -779,7 +1000,7 @@ Config:
 $CONFIG_FILE
 
 Service:
-$INIT_FILE
+$service_file
 
 GOMEMLIMIT:
 $GOMEMLIMIT
@@ -790,21 +1011,21 @@ $MEM_WARN
 
 Verification:
 
-  ubus call service list '{"name":"$SERVICE_NAME"}'
+  $status_command
 
-  logread | grep -i olcrtc | tail -n 80
+  $logs_command
 
 Restart:
 
-  $INIT_FILE restart
+  $restart_command
 
 Stop:
 
-  $INIT_FILE stop
+  $stop_command
 
 Start:
 
-  $INIT_FILE start
+  $start_command
 
 
 IMPORTANT:
@@ -812,7 +1033,7 @@ The current olcrtc CLI consumes YAML, not an olcrtc:// URI.
 The URI is for compatible client apps. It contains the encryption
 key — do not post it in a public chat, issue or screenshot.
 
-procd "running" means the process stayed up. It is not a Telemost /
+$service_manager "running" means the process stayed up. It is not a Telemost /
 OLC2 / SOCKS check. That is Deployment GO on the client.
 
 ============================================================

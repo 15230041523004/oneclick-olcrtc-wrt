@@ -108,6 +108,45 @@ if [ "$init" != "$from_file" ]; then
     exit 1
 fi
 
+unit=$(sh "$INSTALL" --dump-systemd)
+printf '%s\n' "$unit" | grep -q '^\[Unit\]$'
+printf '%s\n' "$unit" | grep -q '^\[Service\]$'
+printf '%s\n' "$unit" | grep -q '^\[Install\]$'
+printf '%s\n' "$unit" | grep -q '^ExecStart=/usr/bin/olcrtc /etc/olcrtc/server.yaml$'
+printf '%s\n' "$unit" | grep -q '^Restart=always$'
+printf '%s\n' "$unit" | grep -q '^WantedBy=multi-user.target$'
+
+unit2=$(
+    INSTALL_BIN=/opt/olcrtc CONFIG_FILE=/opt/olcrtc.yaml GOMEMLIMIT=64MiB \
+        sh "$INSTALL" --dump-systemd
+)
+printf '%s\n' "$unit2" | grep -q '^ExecStart=/opt/olcrtc /opt/olcrtc.yaml$'
+printf '%s\n' "$unit2" | grep -q '^Environment=GOMEMLIMIT=64MiB$'
+
+from_unit=$(
+    sed -e 's#@INSTALL_BIN@#/usr/bin/olcrtc#g' \
+        -e 's#@CONFIG_FILE@#/etc/olcrtc/server.yaml#g' \
+        -e 's#@GOMEMLIMIT@#80MiB#g' \
+        "$ROOT/files/olcrtc-srv.service"
+)
+if [ "$unit" != "$from_unit" ]; then
+    printf '%s\n' "systemd template drifted from files/olcrtc-srv.service" >&2
+    exit 1
+fi
+
+if grep -R -q systemd-analyze "$ROOT/.github/workflows"; then
+    printf '%s\n' "systemd-analyze must not be in CI workflows" >&2
+    exit 1
+fi
+
+for wf in "$ROOT/.github/workflows/ci.yml" "$ROOT/.github/workflows/release.yml"; do
+    [ -s "$wf" ] || {
+        printf '%s\n' "missing workflow $wf" >&2
+        exit 1
+    }
+    head -n 1 "$wf" | grep -q '^name:'
+done
+
 ver="$(tr -d ' \n\r' < "$ROOT/VERSION")"
 [ -n "$ver" ] || {
     printf '%s\n' "VERSION is empty" >&2

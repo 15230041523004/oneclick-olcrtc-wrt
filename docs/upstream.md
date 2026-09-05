@@ -9,7 +9,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64|amd64
 go build -trimpath -ldflags='-s -w' -o olcrtc-linux-<arch> ./cmd/olcrtc
 ```
 
-Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions publishes a stable release only from a pushed `v*` tag that matches `VERSION` (no `-untested` / `-alpha` / `-rc` suffix). Do not clone or compile OlcRTC on the router. Supported RAM floor is 512 MiB.
+Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Actions publishes a stable release only from a pushed `v*` tag that matches `VERSION` (no `-untested` / `-alpha` / `-rc` suffix). Do not clone or compile OlcRTC on the router or VDS. Supported RAM floor is 512 MiB.
+
+The same Linux ELF is used on OpenWrt (procd) and on Debian-family VDS (systemd). The systemd unit is a foreground `Type=simple` service with `Restart=always` / `RestartSec=5s`, matching procd `respawn 3600 5 0`.
 
 ## Documents used
 
@@ -20,6 +22,7 @@ Those flags match upstream `magefile.go` (`mage cross` Linux targets). GitHub Ac
 | [uri.md](https://github.com/openlibrecommunity/olcrtc/blob/master/docs/uri.md) | Compact `olcrtc://` client convention (`vp8-fps`, `vp8-batch`) |
 | [manual.md](https://github.com/openlibrecommunity/olcrtc/blob/master/docs/manual.md) | Go 1.26+, off-router cross-build, SOCKS5 check on the **client** |
 | [OpenWrt procd init scripts](https://openwrt.org/docs/guide-developer/procd-init-scripts) | Foreground command, `respawn`, stdout/stderr |
+| [systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) | Debian/Ubuntu VDS unit: `Type=simple`, `Restart=always` |
 
 ## Combinations this installer will not use
 

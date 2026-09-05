@@ -69,7 +69,9 @@ jobs:
         run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh scripts/prepare-release.sh
 
       - name: Installer fixtures
-        run: sh scripts/check-installer.sh
+        run: |
+          sh scripts/check-installer.sh
+          python3 scripts/check-platforms.py
 
       - name: Read versions.env
         id: ver
@@ -126,14 +128,22 @@ jobs:
             Pinned upstream: `${{ steps.ver.outputs.commit }}`
 
             Built with `CGO_ENABLED=0` from `openlibrecommunity/olcrtc` (`./cmd/olcrtc`).
-            Install from **this Release**, not from the repo root. One line on the router:
+            Install from **this Release**, not from the repo root.
+
+            OpenWrt:
 
             ```
             wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/${{ steps.meta.outputs.tag }}/install.sh && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+            ```
+
+            Debian/Ubuntu VDS (systemd + apt):
+
+            ```
+            curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/${{ steps.meta.outputs.tag }}/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
             ```
 
             That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from these assets.
 
             Assets: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
-            Verified client: olcbox with the same Room ID and key. owenclave / veil / raw cnc are unproven.
+            Verified client on OpenWrt: olcbox with the same Room ID and key. A live Debian/Ubuntu VDS → Telemost → olcbox session has not been verified. owenclave / veil / raw cnc are unproven.

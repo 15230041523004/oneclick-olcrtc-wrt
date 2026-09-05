@@ -31,8 +31,11 @@ jobs:
       - name: ShellCheck
         run: shellcheck -s sh install.sh uninstall.sh scripts/build-olcrtc.sh scripts/check-installer.sh scripts/prepare-release.sh
 
-      - name: dump-config and dump-uri fixtures
+      - name: dump-config, dump-uri and dump-systemd fixtures
         run: sh scripts/check-installer.sh
+
+      - name: Isolated OpenWrt/Debian/Ubuntu installer fixtures
+        run: python3 scripts/check-platforms.py
 
   build:
     runs-on: ubuntu-latest
