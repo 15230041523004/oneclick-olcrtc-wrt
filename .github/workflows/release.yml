@@ -85,23 +85,32 @@ jobs:
         with:
           go-version: ${{ steps.ver.outputs.go }}
 
-      - name: Cross-build linux/arm64 and linux/amd64
+      - name: Cross-build linux/arm64, linux/amd64 and linux/armv7
         if: steps.meta.outputs.publish == 'true'
         run: sh scripts/build-olcrtc.sh
 
-      - name: Pre-publish gate (ELF both arches + SHA256SUMS)
+      - name: Pre-publish gate (ELF three arches + SHA256SUMS)
         if: steps.meta.outputs.publish == 'true'
         run: |
           test -s dist/olcrtc-linux-arm64
           test -s dist/olcrtc-linux-amd64
+          test -s dist/olcrtc-linux-armv7
           test -s dist/SHA256SUMS
           test -s dist/OLCRTC_COMMIT.txt
           grep -qx '${{ steps.ver.outputs.commit }}' dist/OLCRTC_COMMIT.txt
-          hex_arm=$(od -An -tx1 -N 4 dist/olcrtc-linux-arm64 | tr -d ' \n\t')
-          hex_amd=$(od -An -tx1 -N 4 dist/olcrtc-linux-amd64 | tr -d ' \n\t')
-          test "$hex_arm" = "7f454c46"
-          test "$hex_amd" = "7f454c46"
           (cd dist && sha256sum -c SHA256SUMS)
+          hex() { od -An -tx1 "$@" | tr -d ' \n\t'; }
+          test "$(hex -N 4 dist/olcrtc-linux-arm64)" = "7f454c46"
+          test "$(hex -N 4 dist/olcrtc-linux-amd64)" = "7f454c46"
+          test "$(hex -N 4 dist/olcrtc-linux-armv7)" = "7f454c46"
+          test "$(hex -j 4 -N 1 dist/olcrtc-linux-arm64)" = "02"
+          test "$(hex -j 4 -N 1 dist/olcrtc-linux-amd64)" = "02"
+          test "$(hex -j 4 -N 1 dist/olcrtc-linux-armv7)" = "01"
+          test "$(hex -j 18 -N 2 dist/olcrtc-linux-arm64)" = "b700"
+          test "$(hex -j 18 -N 2 dist/olcrtc-linux-amd64)" = "3e00"
+          test "$(hex -j 18 -N 2 dist/olcrtc-linux-armv7)" = "2800"
+          go version -m dist/olcrtc-linux-armv7 | grep -q 'GOARCH=arm'
+          go version -m dist/olcrtc-linux-armv7 | grep -q 'GOARM=7'
 
       - name: Bake installer to this version tag
         if: steps.meta.outputs.publish == 'true'
@@ -122,6 +131,7 @@ jobs:
             dist/uninstall.sh
             dist/olcrtc-linux-arm64
             dist/olcrtc-linux-amd64
+            dist/olcrtc-linux-armv7
             dist/SHA256SUMS
             dist/OLCRTC_COMMIT.txt
           body: |
@@ -142,8 +152,10 @@ jobs:
             curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/${{ steps.meta.outputs.tag }}/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
             ```
 
-            That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from these assets.
+            That script downloads `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, or `olcrtc-linux-armv7` from these assets.
 
-            Assets: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
+            Assets: `install.sh`, `uninstall.sh`, `olcrtc-linux-arm64`, `olcrtc-linux-amd64`, `olcrtc-linux-armv7`, `SHA256SUMS`, `OLCRTC_COMMIT.txt`.
 
             Verified client: olcbox with the same Room ID and key, on Debian VDS and OpenWrt. owenclave / veil / raw cnc are unproven.
+
+            ARMv7 (`GOARCH=arm GOARM=7`) builds; a live Raspberry Pi Telemost + olcbox session has not been verified.

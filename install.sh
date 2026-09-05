@@ -5,13 +5,13 @@
 # One line (OpenWrt wget / uclient-fetch), not raw main.
 # ROOM_ID must be on the `sh` after && — a prefix only applies to wget.
 #   wget -O /tmp/olcrtc-install.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/install.sh \
 #     && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # Debian-family VDS (curl; sudo keeps ROOM_ID):
 #   curl -fL -o /tmp/olcrtc-install.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/install.sh \
 #     && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
-# The script then downloads olcrtc-linux-arm64|amd64 from the same Release.
+# The script then downloads olcrtc-linux-arm64|amd64|armv7 from the same Release.
 # Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
 #
 # Dry-run (no OpenWrt, no downloads):
@@ -50,8 +50,10 @@ case "${DEBUG:-false}" in
         ;;
 esac
 
-# "" = uname -m; "arm64" or "amd64" to force.
+# "" = uname -m + userland ELF; "arm64", "amd64" or "armv7" to force.
 ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
+# Fixture-only: if set, the userland ELF probe uses this path and nothing else.
+USERLAND_ELF="${USERLAND_ELF:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
 
@@ -71,11 +73,13 @@ fi
 # Leave empty to use this repo's GitHub Release assets.
 BINARY_URL_ARM64="${BINARY_URL_ARM64:-}"
 BINARY_URL_AMD64="${BINARY_URL_AMD64:-}"
+BINARY_URL_ARMV7="${BINARY_URL_ARMV7:-}"
 
 # Leave empty to take the digest from SHA256SUMS on the same release.
 # Required-empty only when BINARY_URL_* is a custom override.
 BINARY_SHA256_ARM64="${BINARY_SHA256_ARM64:-}"
 BINARY_SHA256_AMD64="${BINARY_SHA256_AMD64:-}"
+BINARY_SHA256_ARMV7="${BINARY_SHA256_ARMV7:-}"
 
 # Optional outbound SOCKS5 for the server itself (not a listen port).
 UPSTREAM_PROXY_ADDR="${UPSTREAM_PROXY_ADDR:-}"
@@ -427,7 +431,7 @@ detect_platform() {
         openwrt)
             service_manager=procd
             ;;
-        debian | ubuntu)
+        debian | ubuntu | raspbian)
             require_systemd_family
             ;;
         *)
@@ -487,10 +491,52 @@ WantedBy=multi-user.target
 EOF_SYSTEMD
 }
 
-is_elf() {
-    # 0x7f 'E' 'L' 'F'. Avoid od: it is not in default OpenWrt BusyBox.
-    [ "$(dd if="$1" bs=4 count=1 2>/dev/null)" = "$(printf '\177ELF')" ]
+# ELF bytes via dd. Avoid od: it is not in default OpenWrt BusyBox.
+# Do not store NUL in shell variables (e_machine high byte is 0).
+elf_bytes() {
+    dd if="$1" bs=1 skip="$2" count="$3" 2>/dev/null
 }
+
+elf_ident_ok() {
+    # Magic + EI_CLASS 32/64 + EI_DATA little-endian.
+    [ "$(dd if="$1" bs=4 count=1 2>/dev/null)" = "$(printf '\177ELF')" ] || return 1
+    class="$(elf_bytes "$1" 4 1)"
+    data="$(elf_bytes "$1" 5 1)"
+    [ "$class" = "$(printf '\001')" ] || [ "$class" = "$(printf '\002')" ] || return 1
+    [ "$data" = "$(printf '\001')" ] || return 1
+    return 0
+}
+
+elf_class_bits() {
+    class="$(elf_bytes "$1" 4 1)"
+    if [ "$class" = "$(printf '\001')" ]; then
+        printf '%s\n' 32
+    elif [ "$class" = "$(printf '\002')" ]; then
+        printf '%s\n' 64
+    fi
+}
+
+bytes_equal_file() {
+    # $1 = path, $2 = skip, $3 = count, $4 = expected-bytes file, $5 = scratch
+    got="$5"
+    dd if="$1" bs=1 skip="$2" count="$3" of="$got" 2>/dev/null || return 1
+    if command -v cmp >/dev/null 2>&1; then
+        if cmp -s "$4" "$got"; then
+            return 0
+        fi
+        return 1
+    fi
+    command -v sha256sum >/dev/null 2>&1 || return 1
+    got_sum="$(sha256sum "$got" | awk '{print $1}')"
+    want_sum="$(sha256sum "$4" | awk '{print $1}')"
+    if [ "$got_sum" = "$want_sum" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Userland ELF probe is inlined in the aarch64 branch so die() is not trapped
+# inside command substitution.
 
 has_http_downloader() {
     command -v uclient-fetch >/dev/null 2>&1 && return 0
@@ -623,11 +669,51 @@ if [ -z "$arch" ]; then
         x86_64 | amd64)
             arch="amd64"
             ;;
+        armv7l | armv7)
+            arch="armv7"
+            ;;
+        armv6l)
+            die "unsupported architecture: $machine (Pi 1 / Zero; need armv7l or a 64-bit OS)"
+            ;;
+        arm)
+            die "unsupported architecture: $machine (ambiguous; set ARCH_OVERRIDE=armv7 or use a 64-bit OS)"
+            ;;
         aarch64 | arm64)
-            arch="arm64"
+            # USERLAND_ELF set: that path only (fixtures). Else /bin/sh, then
+            # /proc/$$/exe. Never /proc/self/exe: that is dd, not the shell.
+            probe=""
+            if [ -n "$USERLAND_ELF" ]; then
+                [ -e "$USERLAND_ELF" ] ||
+                    die "USERLAND_ELF is not readable: $USERLAND_ELF (set ARCH_OVERRIDE=arm64|amd64|armv7)"
+                elf_ident_ok "$USERLAND_ELF" ||
+                    die "USERLAND_ELF is not a little-endian ELF: $USERLAND_ELF (set ARCH_OVERRIDE=arm64|amd64|armv7)"
+                probe="$USERLAND_ELF"
+            else
+                for f in /bin/sh /proc/$$/exe; do
+                    [ -e "$f" ] || continue
+                    elf_ident_ok "$f" || continue
+                    probe="$f"
+                    break
+                done
+            fi
+            bits=""
+            if [ -n "$probe" ]; then
+                bits="$(elf_class_bits "$probe")"
+            fi
+            case "$bits" in
+                32)
+                    arch="armv7"
+                    ;;
+                64)
+                    arch="arm64"
+                    ;;
+                *)
+                    die "cannot determine userland width on $machine (need a valid ELF at /bin/sh or /proc/\$\$/exe, or set ARCH_OVERRIDE=arm64|armv7)"
+                    ;;
+            esac
             ;;
         *)
-            die "unsupported architecture: $machine (need aarch64/arm64 or x86_64/amd64)"
+            die "unsupported architecture: $machine (need aarch64/arm64, armv7l, or x86_64/amd64)"
             ;;
     esac
 fi
@@ -637,14 +723,22 @@ case "$arch" in
         binary_url="$BINARY_URL_ARM64"
         binary_sha="$BINARY_SHA256_ARM64"
         binary_name="olcrtc-linux-arm64"
+        want_elf_class="$(printf '\002')"
         ;;
     amd64)
         binary_url="$BINARY_URL_AMD64"
         binary_sha="$BINARY_SHA256_AMD64"
         binary_name="olcrtc-linux-amd64"
+        want_elf_class="$(printf '\002')"
+        ;;
+    armv7)
+        binary_url="$BINARY_URL_ARMV7"
+        binary_sha="$BINARY_SHA256_ARMV7"
+        binary_name="olcrtc-linux-armv7"
+        want_elf_class="$(printf '\001')"
         ;;
     *)
-        die "ARCH_OVERRIDE must be arm64 or amd64"
+        die "ARCH_OVERRIDE must be arm64, amd64, or armv7"
         ;;
 esac
 
@@ -765,6 +859,20 @@ release_hint() {
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/olcrtc-install.XXXXXX")"
 trap 'rm -rf "$workdir"' EXIT INT TERM
 
+# e_machine is a 16-bit field; the high byte is NUL and cannot live in a
+# POSIX shell variable. Write the expected two bytes for cmp/sha256sum.
+case "$arch" in
+    amd64)
+        printf '\076\000' >"$workdir/want_em"
+        ;;
+    arm64)
+        printf '\267\000' >"$workdir/want_em"
+        ;;
+    armv7)
+        printf '\050\000' >"$workdir/want_em"
+        ;;
+esac
+
 if [ -z "$binary_sha" ] && [ "$using_release" -eq 1 ]; then
     sums_url="${RELEASE_BASE_URL}/SHA256SUMS"
     log "downloading SHA256SUMS"
@@ -802,8 +910,8 @@ fi
 
 [ -s "$tmp" ] || release_hint "downloaded binary is empty"
 
-if ! is_elf "$tmp"; then
-    release_hint "downloaded file is not an ELF binary (got an HTML error page or the wrong asset)"
+if ! elf_ident_ok "$tmp"; then
+    release_hint "downloaded file is not a little-endian ELF (got an HTML error page or the wrong asset)"
 fi
 
 if [ -n "$binary_sha" ]; then
@@ -815,6 +923,12 @@ if [ -n "$binary_sha" ]; then
         die "SHA256 mismatch: got $got want $binary_sha"
     fi
     log "SHA256 OK"
+fi
+
+got_class="$(elf_bytes "$tmp" 4 1)"
+if [ "$got_class" != "$want_elf_class" ] ||
+    ! bytes_equal_file "$tmp" 18 2 "$workdir/want_em" "$workdir/got_em"; then
+    die "downloaded ELF does not match $arch (wrong EI_CLASS or e_machine); not replacing the installed binary"
 fi
 
 if [ "$service_manager" = systemd ]; then

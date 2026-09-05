@@ -18,8 +18,25 @@ UNINSTALL = ROOT / "uninstall.sh"
 
 KEY = "c8fa447c6d5c42f17a834dc44ec22c5322d62c274c0d2c51cb533aa2bf853619"
 ROOM = "1234567890123456789"
-ELF = b"\x7fELF" + b"\0" * 64
-ELF_SHA = hashlib.sha256(ELF).hexdigest()
+
+
+def fake_elf(*, ei_class: int, e_machine: int) -> bytes:
+    buf = bytearray(64)
+    buf[0:4] = b"\x7fELF"
+    buf[4] = ei_class
+    buf[5] = 1
+    buf[6] = 1
+    buf[16:18] = (2).to_bytes(2, "little")
+    buf[18:20] = e_machine.to_bytes(2, "little")
+    return bytes(buf)
+
+
+ELF_AMD64 = fake_elf(ei_class=2, e_machine=62)
+ELF_ARM64 = fake_elf(ei_class=2, e_machine=183)
+ELF_ARMV7 = fake_elf(ei_class=1, e_machine=40)
+SHA_AMD64 = hashlib.sha256(ELF_AMD64).hexdigest()
+SHA_ARM64 = hashlib.sha256(ELF_ARM64).hexdigest()
+SHA_ARMV7 = hashlib.sha256(ELF_ARMV7).hexdigest()
 
 NEED_TOOLS = (
     "awk",
@@ -120,10 +137,13 @@ class Fixture:
         self.ca_certs.parent.mkdir(parents=True, exist_ok=True)
         self.ca_certs.write_bytes(b"dummy-ca\n")
 
-        (self.assets / "olcrtc-linux-amd64").write_bytes(ELF)
-        (self.assets / "olcrtc-linux-arm64").write_bytes(ELF)
+        (self.assets / "olcrtc-linux-amd64").write_bytes(ELF_AMD64)
+        (self.assets / "olcrtc-linux-arm64").write_bytes(ELF_ARM64)
+        (self.assets / "olcrtc-linux-armv7").write_bytes(ELF_ARMV7)
         (self.assets / "SHA256SUMS").write_text(
-            f"{ELF_SHA}  olcrtc-linux-amd64\n{ELF_SHA}  olcrtc-linux-arm64\n",
+            f"{SHA_AMD64}  olcrtc-linux-amd64\n"
+            f"{SHA_ARM64}  olcrtc-linux-arm64\n"
+            f"{SHA_ARMV7}  olcrtc-linux-armv7\n",
             encoding="utf-8",
         )
         (self.assets / "OLCRTC_COMMIT.txt").write_text("deadbeef\n", encoding="utf-8")
@@ -355,8 +375,35 @@ printf '%s\n' "{\"olcrtc-srv\":{\"running\": true, \"pid\": ${pid}}}"
     def write_os(self, os_id: str, id_like: str = "") -> None:
         lines = [f"ID={os_id}"]
         if id_like:
-            lines.append(f"ID_LIKE=\"{id_like}\"")
+            lines.append(f'ID_LIKE="{id_like}"')
         self.os_release.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+    def set_uname(self, machine: str) -> None:
+        if any(c in machine for c in " \t\n'\"$"):
+            raise Fail("refusing uname stub with shell metacharacters")
+        write_exec(
+            self.bin / "uname",
+            "#!/bin/sh\n"
+            '[ "$1" = -m ] && printf \'%s\\n\' ' + machine + " && exit 0\n"
+            "printf '%s\\n' Linux\n",
+        )
+
+    def write_userland_elf(self, blob: bytes) -> Path:
+        path = self.tmp / "userland.elf"
+        path.write_bytes(blob)
+        self.env["USERLAND_ELF"] = posix_path(path)
+        return path
+
+    def systemctl_verbs(self) -> list[str]:
+        log = self.state / "systemctl.log"
+        if not log.is_file():
+            return []
+        verbs = []
+        for line in read(log).splitlines():
+            parts = line.split()
+            if parts:
+                verbs.append(parts[0])
+        return verbs
 
     def hide_ca(self) -> None:
         if self.ca_certs.exists():
@@ -458,8 +505,8 @@ def test_debian_install() -> None:
         yaml = read(fx.config_file)
         if "mode: srv" not in yaml or KEY not in yaml:
             raise Fail("debian yaml missing")
-        if b"\x7fELF" != fx.install_bin.read_bytes()[:4]:
-            raise Fail("debian binary is not ELF")
+        if fx.install_bin.read_bytes() != ELF_AMD64:
+            raise Fail("debian binary is not the amd64 fixture ELF")
         if "Debian-Telemost-srv" not in proc.stdout:
             raise Fail("debian URI label missing")
     finally:
@@ -767,6 +814,156 @@ def test_unit_template_sections() -> None:
         fx.cleanup()
 
 
+def test_raspbian_armv7l() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("raspbian", "debian")
+        fx.set_uname("armv7l")
+        fx.write_userland_elf(ELF_ARMV7)
+        del fx.env["ARCH_OVERRIDE"]
+        proc = fx.run(INSTALL)
+        expect_ok(proc, "raspbian armv7l")
+        if "OS:             raspbian" not in proc.stdout:
+            raise Fail("raspbian OS id not preserved")
+        if "Architecture:   armv7" not in proc.stdout:
+            raise Fail("expected armv7 architecture")
+        if not fx.unit_file.is_file():
+            raise Fail("raspbian missing systemd unit")
+        if fx.init_file.exists():
+            raise Fail("raspbian wrote procd init")
+        wget = read(fx.state / "wget.log")
+        if "olcrtc-linux-armv7" not in wget:
+            raise Fail(f"expected armv7 download: {wget}")
+        if "olcrtc-linux-arm64" in wget:
+            raise Fail("downloaded arm64 on 32-bit raspbian")
+        if fx.install_bin.read_bytes() != ELF_ARMV7:
+            raise Fail("installed binary is not the armv7 fixture")
+    finally:
+        fx.cleanup()
+
+
+def test_aarch64_kernel_32bit_userland() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("raspbian", "debian")
+        fx.set_uname("aarch64")
+        fx.write_userland_elf(ELF_ARMV7)
+        del fx.env["ARCH_OVERRIDE"]
+        proc = fx.run(INSTALL)
+        expect_ok(proc, "mixed aarch64/32")
+        if "Architecture:   armv7" not in proc.stdout:
+            raise Fail("mixed kernel should select armv7 userland")
+        wget = read(fx.state / "wget.log")
+        if "olcrtc-linux-armv7" not in wget:
+            raise Fail(f"expected armv7 download: {wget}")
+        if "olcrtc-linux-arm64" in wget:
+            raise Fail("downloaded arm64 for 32-bit userland")
+    finally:
+        fx.cleanup()
+
+
+def test_aarch64_64bit_userland() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.set_uname("aarch64")
+        fx.write_userland_elf(ELF_ARM64)
+        del fx.env["ARCH_OVERRIDE"]
+        proc = fx.run(INSTALL)
+        expect_ok(proc, "aarch64 64-bit")
+        if "Architecture:   arm64" not in proc.stdout:
+            raise Fail("64-bit userland should select arm64")
+        wget = read(fx.state / "wget.log")
+        if "olcrtc-linux-arm64" not in wget:
+            raise Fail(f"expected arm64 download: {wget}")
+        if "olcrtc-linux-armv7" in wget:
+            raise Fail("downloaded armv7 for 64-bit userland")
+    finally:
+        fx.cleanup()
+
+
+def test_armv6l_rejected() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.set_uname("armv6l")
+        del fx.env["ARCH_OVERRIDE"]
+        proc = fx.run(INSTALL, check=False)
+        expect_fail(proc, "armv6l", "unsupported architecture")
+        if fx.install_bin.exists():
+            raise Fail("armv6l still installed a binary")
+    finally:
+        fx.cleanup()
+
+
+def test_bare_arm_rejected() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.set_uname("arm")
+        del fx.env["ARCH_OVERRIDE"]
+        proc = fx.run(INSTALL, check=False)
+        expect_fail(proc, "bare arm", "unsupported architecture")
+    finally:
+        fx.cleanup()
+
+
+def test_missing_userland_elf_does_not_read_host() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.set_uname("aarch64")
+        del fx.env["ARCH_OVERRIDE"]
+        fx.env["USERLAND_ELF"] = posix_path(fx.tmp / "missing-userland.elf")
+        proc = fx.run(INSTALL, check=False)
+        expect_fail(proc, "missing USERLAND_ELF", "USERLAND_ELF")
+        wget = fx.state / "wget.log"
+        if wget.is_file() and "olcrtc-linux-" in read(wget):
+            raise Fail("probed host and downloaded an ELF")
+    finally:
+        fx.cleanup()
+
+
+def test_corrupt_userland_elf() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.set_uname("aarch64")
+        del fx.env["ARCH_OVERRIDE"]
+        fx.write_userland_elf(b"not-an-elf")
+        proc = fx.run(INSTALL, check=False)
+        expect_fail(proc, "corrupt USERLAND_ELF", "USERLAND_ELF")
+        wget = fx.state / "wget.log"
+        if wget.is_file() and "olcrtc-linux-" in read(wget):
+            raise Fail("corrupt probe still downloaded an ELF")
+    finally:
+        fx.cleanup()
+
+
+def test_wrong_downloaded_elf_does_not_stop() -> None:
+    fx = Fixture()
+    try:
+        fx.write_os("debian")
+        fx.run(INSTALL)
+        installed = fx.install_bin.read_bytes()
+        unit = fx.unit_file.read_bytes()
+        (fx.assets / "olcrtc-linux-armv7").write_bytes(ELF_AMD64)
+        (fx.assets / "SHA256SUMS").write_text(
+            f"{SHA_AMD64}  olcrtc-linux-armv7\n",
+            encoding="utf-8",
+        )
+        proc = fx.run(INSTALL, extra_env={"ARCH_OVERRIDE": "armv7"}, check=False)
+        expect_fail(proc, "wrong e_machine", "does not match")
+        if "stop" in fx.systemctl_verbs():
+            raise Fail("stop ran before rejecting the downloaded ELF")
+        if fx.install_bin.read_bytes() != installed:
+            raise Fail("installed binary was replaced")
+        if fx.unit_file.read_bytes() != unit:
+            raise Fail("systemd unit was replaced")
+    finally:
+        fx.cleanup()
+
+
 TESTS = [
     ("debian install", test_debian_install),
     ("ubuntu install", test_ubuntu_install),
@@ -790,6 +987,14 @@ TESTS = [
     ("missing CA installs curl", test_missing_ca_installs_curl_without_downloader),
     ("missing CA keeps wget", test_missing_ca_keeps_existing_downloader),
     ("unit sections", test_unit_template_sections),
+    ("raspbian armv7l", test_raspbian_armv7l),
+    ("aarch64 kernel 32-bit userland", test_aarch64_kernel_32bit_userland),
+    ("aarch64 64-bit userland", test_aarch64_64bit_userland),
+    ("armv6l rejected", test_armv6l_rejected),
+    ("bare arm rejected", test_bare_arm_rejected),
+    ("missing USERLAND_ELF", test_missing_userland_elf_does_not_read_host),
+    ("corrupt USERLAND_ELF", test_corrupt_userland_elf),
+    ("wrong downloaded ELF leaves service", test_wrong_downloaded_elf_does_not_stop),
 ]
 
 

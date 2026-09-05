@@ -4,11 +4,11 @@
 #
 # One line (not sh -c "$(wget -qO- …)"):
 #   wget -O /tmp/olcrtc-uninstall.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/uninstall.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/uninstall.sh \
 #     && sh /tmp/olcrtc-uninstall.sh
 # Debian-family VDS:
 #   curl -fL -o /tmp/olcrtc-uninstall.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/uninstall.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/uninstall.sh \
 #     && sudo sh /tmp/olcrtc-uninstall.sh
 set -eu
 
@@ -110,7 +110,7 @@ case "$platform" in
     openwrt)
         service_manager=procd
         ;;
-    debian | ubuntu)
+    debian | ubuntu | raspbian)
         require_systemd_family
         ;;
     *)

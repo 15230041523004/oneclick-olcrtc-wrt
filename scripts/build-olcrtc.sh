@@ -1,6 +1,7 @@
 #!/bin/sh
 # Clone the pinned openlibrecommunity/olcrtc commit and cross-build
-# linux/arm64 + linux/amd64 with the same flags as upstream magefile.go.
+# linux/arm64 + linux/amd64 (upstream mage cross) and linux/arm GOARM=7
+# (extra target for 32-bit Raspberry Pi OS / armv7l).
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -42,14 +43,21 @@ if [ "$actual" != "$OLCRTC_COMMIT" ]; then
     exit 1
 fi
 
+# $1=GOARCH $2=output filename $3=optional GOARM
 build_one() {
-    arch=$1
-    out="olcrtc-linux-$arch"
-    printf '%s\n' "building $out from $OLCRTC_COMMIT"
+    goarch=$1
+    out=$2
+    goarm=${3:-}
+    printf '%s\n' "building $out from $OLCRTC_COMMIT (GOARCH=$goarch${goarm:+ GOARM=$goarm})"
     (
         cd "$WORKDIR" || exit 1
-        CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-            go build -trimpath -ldflags='-s -w' -o "$DIST/$out" ./cmd/olcrtc
+        if [ -n "$goarm" ]; then
+            CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" \
+                go build -trimpath -ldflags='-s -w' -o "$DIST/$out" ./cmd/olcrtc
+        else
+            CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" \
+                go build -trimpath -ldflags='-s -w' -o "$DIST/$out" ./cmd/olcrtc
+        fi
     )
     [ -s "$DIST/$out" ] || {
         printf '%s\n' "build produced empty $out" >&2
@@ -57,12 +65,13 @@ build_one() {
     }
 }
 
-build_one arm64
-build_one amd64
+build_one arm64 olcrtc-linux-arm64
+build_one amd64 olcrtc-linux-amd64
+build_one arm olcrtc-linux-armv7 7
 
 (
     cd "$DIST" || exit 1
-    sha256sum olcrtc-linux-arm64 olcrtc-linux-amd64 >SHA256SUMS
+    sha256sum olcrtc-linux-arm64 olcrtc-linux-amd64 olcrtc-linux-armv7 >SHA256SUMS
 )
 
 printf '%s\n' "$OLCRTC_COMMIT" >"$DIST/OLCRTC_COMMIT.txt"
