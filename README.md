@@ -1,6 +1,6 @@
 # oneclick-olcrtc-wrt
 
-**Версия `0.0.2-untested`.** Прогнано на OpenWrt (Xiaomi AX3000-3600) + Yandex Telemost + [olcbox](https://github.com/alananisimov/olcbox). Добавлена однокомандная установка на **Debian 12/13, Ubuntu и другие Debian-family системы с systemd** (изолированные фикстуры установщика). Живой сеанс Debian/Ubuntu VDS → Telemost → olcbox **не проверялся**. Суффикс `-untested` публикует prerelease с каждого пуша в `main`; `/releases/latest` остаётся стабильным `v0.0.1`, пока не будет тега без суффикса.
+**Версия `0.0.2`.** Прогнано на OpenWrt (Xiaomi AX3000-3600) + Yandex Telemost + [olcbox](https://github.com/alananisimov/olcbox). Добавлена однокомандная установка на **Debian 12/13, Ubuntu и другие Debian-family системы с systemd** (изолированные фикстуры установщика). Живой сеанс Debian/Ubuntu VDS → Telemost → olcbox **не проверялся**. Стабильный тег `v0.0.2` публикуется только пушем тега; `/releases/latest` до этого остаётся `v0.0.1`.
 
 Однокомандная установка **текущего** [OlcRTC](https://github.com/openlibrecommunity/olcrtc) в режиме **`mode: srv`** на OpenWrt или Debian-family VDS.
 
@@ -16,16 +16,16 @@
 
 Используется тот же Linux-бинарник из Release (`CGO_ENABLED=0`), сборка Go на VDS не нужна. Режим остаётся серверным: TUN, IP forwarding, NAT и входящий SOCKS-порт для этой схемы не требуются. Скрипт не меняет маршруты и правила firewall. Провайдер VDS должен разрешать исходящие соединения, необходимые Telemost/WebRTC.
 
-С VDS берите prerelease `v0.0.2-untested` (`/releases/latest` пока OpenWrt-only `v0.0.1`):
+После публикации тега `v0.0.2` (`/releases/latest` до этого — OpenWrt-only `v0.0.1`):
 
 ```sh
-curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2-untested/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
 Если `curl` нет, а есть `wget`:
 
 ```sh
-wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2-untested/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
 Уже root — без `sudo`: `env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh`. `sudo env` нужен, чтобы `ROOM_ID` не потерялся. Не используйте `sh -c "$(curl …)"`.
@@ -45,7 +45,7 @@ sudo systemctl restart olcrtc-srv.service
 Удаление (также удаляет конфигурацию и ключ):
 
 ```sh
-curl -fL -o /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2-untested/uninstall.sh && sudo sh /tmp/olcrtc-uninstall.sh
+curl -fL -o /tmp/olcrtc-uninstall.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2/uninstall.sh && sudo sh /tmp/olcrtc-uninstall.sh
 ```
 
 Проверить содержимое unit-файла без установки: `sh ./install.sh --dump-systemd`.
@@ -76,7 +76,7 @@ wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc
 
 Свой ключ (64 hex) — добавьте `ENCRYPTION_KEY='…'` тоже перед `sh`. Если ключ не задан, при повторной установке берётся `/etc/olcrtc/server.yaml`, иначе генерируется новый.
 
-Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`. Pin на конкретный тег: замените `latest/download` на `download/v0.0.2-untested`.
+Не используйте `sh -c "$(wget -qO- …)"` — при 404 получится пустой успешный `sh`. Pin на конкретный тег: замените `latest/download` на `download/v0.0.2`.
 
 **URI содержит ключ шифрования.** Не публикуйте его в issue, чате или скриншоте.
 
@@ -157,7 +157,7 @@ python3 scripts/check-platforms.py
 
 ## English
 
-Version `0.0.2-untested`. Tested on OpenWrt + Telemost + [olcbox](https://github.com/alananisimov/olcbox). This prerelease adds Debian-family/systemd support (Debian 12/13, Ubuntu, `ID_LIKE=debian`), covered by isolated installer fixtures. A live Debian/Ubuntu VDS → Telemost → olcbox session has not been verified. `/releases/latest` is still the OpenWrt-only `v0.0.1`; VDS one-click uses `v0.0.2-untested` until a suffix-less tag.
+Version `0.0.2`. Tested on OpenWrt + Telemost + [olcbox](https://github.com/alananisimov/olcbox). This release adds Debian-family/systemd support (Debian 12/13, Ubuntu, `ID_LIKE=debian`), covered by isolated installer fixtures. A live Debian/Ubuntu VDS → Telemost → olcbox session has not been verified. `/releases/latest` stays OpenWrt-only `v0.0.1` until tag `v0.0.2` is pushed.
 
 OpenWrt:
 
@@ -168,7 +168,7 @@ wget -O /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc
 Debian/Ubuntu VDS:
 
 ```sh
-curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2-untested/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
+curl -fL -o /tmp/olcrtc-install.sh https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.2/install.sh && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 ```
 
 Put `ROOM_ID` on `sh`, not on `wget`/`curl`. That script downloads `olcrtc-linux-arm64` or `olcrtc-linux-amd64` from the same Release. Do not use `sh -c "$(wget -qO- …)"`. olcbox is the verified phone client on OpenWrt; owenclave / veil / raw `cnc` are unproven here. Supported RAM floor is **512 MiB**. See [docs/upstream.md](docs/upstream.md).

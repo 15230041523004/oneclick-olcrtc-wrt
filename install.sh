@@ -55,7 +55,7 @@ ARCH_OVERRIDE="${ARCH_OVERRIDE:-}"
 
 GITHUB_REPO="${GITHUB_REPO:-15230041523004/oneclick-olcrtc-wrt}"
 
-# Empty in git. The release workflow bakes the tag, e.g. v0.0.2-untested, so a
+# Empty in git. The release workflow bakes the tag, e.g. v0.0.2, so a
 # downloaded installer pulls binaries from that same Release — not from
 # a floating main / a different latest.
 INSTALLER_RELEASE="${INSTALLER_RELEASE:-}"
@@ -87,6 +87,8 @@ INSTALL_BIN="${INSTALL_BIN:-/usr/bin/olcrtc}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/olcrtc}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/olcrtc/server.yaml}"
 INIT_FILE="${INIT_FILE:-/etc/init.d/olcrtc-srv}"
+# OpenWrt shebang is `#!/bin/sh /etc/rc.common`. Overridable for fixtures.
+RC_COMMON="${RC_COMMON:-/etc/rc.common}"
 SERVICE_NAME="${SERVICE_NAME:-olcrtc-srv}"
 SYSTEMD_UNIT_FILE="${SYSTEMD_UNIT_FILE:-/etc/systemd/system/${SERVICE_NAME}.service}"
 SYSUPGRADE_CONF="${SYSUPGRADE_CONF:-/etc/sysupgrade.conf}"
@@ -400,6 +402,11 @@ id_like_has_debian() {
         [ "$like" = debian ] && return 0
     done
     return 1
+}
+
+procd_rc() {
+    # Same as executing an OpenWrt init script: /bin/sh /etc/rc.common <init> <action>
+    /bin/sh "${RC_COMMON}" "$INIT_FILE" "$@"
 }
 
 require_systemd_family() {
@@ -817,7 +824,7 @@ if [ "$service_manager" = systemd ]; then
     fi
 elif [ -x "$INIT_FILE" ]; then
     log "stopping $SERVICE_NAME before replacing the binary"
-    "$INIT_FILE" stop 2>/dev/null || true
+    procd_rc stop 2>/dev/null || true
 fi
 
 chmod 0755 "$tmp"
@@ -887,9 +894,9 @@ if [ "$service_manager" = systemd ]; then
     stop_command="systemctl stop ${SERVICE_NAME}.service"
     start_command="systemctl start ${SERVICE_NAME}.service"
 else
-    "$INIT_FILE" enable
+    procd_rc enable
     log "starting OlcRTC server"
-    "$INIT_FILE" restart
+    procd_rc restart
     status_command="ubus call service list '{\"name\":\"$SERVICE_NAME\"}'"
     logs_command="logread | grep -i olcrtc | tail -n 80"
     restart_command="$INIT_FILE restart"

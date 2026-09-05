@@ -53,10 +53,6 @@ class Fail(Exception):
     pass
 
 
-class Skip(Exception):
-    pass
-
-
 def find_sh() -> str:
     for name in ("sh", "dash", "bash"):
         path = shutil.which(name)
@@ -131,7 +127,13 @@ class Fixture:
             encoding="utf-8",
         )
         (self.assets / "OLCRTC_COMMIT.txt").write_text("deadbeef\n", encoding="utf-8")
-        self.rc_common.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+        write_exec(
+            self.rc_common,
+            r"""#!/bin/sh
+printf '%s %s\n' "${2:-}" "${1:-}" >>"${OLCRTC_FAKE_STATE}/rc.common.log"
+exit 0
+""",
+        )
 
         if os.name != "nt":
             for name in NEED_TOOLS:
@@ -184,6 +186,7 @@ class Fixture:
         self.env["OLCRTC_FAKE_STATE"] = posix_path(self.state)
         self.env["OLCRTC_FAKE_ASSETS"] = posix_path(self.assets)
         self.env["OLCRTC_FAKE_BIN"] = posix_path(self.bin)
+        self.env["RC_COMMON"] = posix_path(self.rc_common)
         self.env.pop("DEBUG", None)
 
         (self.state / "pid").write_text("4242\n", encoding="utf-8", newline="\n")
@@ -393,8 +396,6 @@ printf '%s\n' "{\"olcrtc-srv\":{\"running\": true, \"pid\": ${pid}}}"
             posix_script,
             *(args or []),
         ]
-        if self.os_release.exists() and "ID=openwrt" in self.os_release.read_text(encoding="utf-8"):
-            cmd = self._unshare_cmd(cmd)
         proc = subprocess.run(
             cmd,
             env=env,
@@ -410,26 +411,17 @@ printf '%s\n' "{\"olcrtc-srv\":{\"running\": true, \"pid\": ${pid}}}"
             )
         return proc
 
-    def _unshare_cmd(self, cmd: list[str]) -> list[str]:
-        unshare = shutil.which("unshare")
-        if unshare is None:
-            return cmd
-        mount = "/bin/mount"
-        if not Path(mount).exists():
-            mount = shutil.which("mount") or "mount"
-        inner = f'"{mount}" --bind "$1" /etc/rc.common && shift && exec "$@"'
-        return [
-            unshare,
-            "--user",
-            "--map-root-user",
-            "--mount",
-            SH,
-            "-c",
-            inner,
-            "_",
-            str(self.rc_common),
-            *cmd,
-        ]
+
+def rc_actions(fx: Fixture) -> list[str]:
+    log = fx.state / "rc.common.log"
+    if not log.is_file():
+        return []
+    actions = []
+    for line in read(log).splitlines():
+        parts = line.split()
+        if parts:
+            actions.append(parts[0])
+    return actions
 
 
 def expect_ok(proc: subprocess.CompletedProcess[str], label: str) -> None:
@@ -504,13 +496,7 @@ def test_id_like_debian_install() -> None:
         fx.cleanup()
 
 
-def have_unshare() -> bool:
-    return shutil.which("unshare") is not None
-
-
 def test_openwrt_install() -> None:
-    if not have_unshare():
-        raise Skip("needs unshare to bind /etc/rc.common")
     fx = Fixture()
     try:
         fx.write_os("openwrt")
@@ -527,13 +513,16 @@ def test_openwrt_install() -> None:
             raise Fail("openwrt sysupgrade keep-list missing")
         if "OpenWRT-Telemost-srv" not in proc.stdout:
             raise Fail("openwrt URI label missing")
+        actions = rc_actions(fx)
+        if "enable" not in actions or "restart" not in actions:
+            raise Fail(f"openwrt install missing enable/restart in rc.common log: {actions}")
+        if posix_path(fx.init_file) not in read(fx.state / "rc.common.log"):
+            raise Fail("openwrt rc.common log did not record INIT_FILE")
     finally:
         fx.cleanup()
 
 
 def test_reinstall_keeps_key(os_id: str) -> None:
-    if os_id == "openwrt" and not have_unshare():
-        raise Skip("needs unshare")
     fx = Fixture()
     try:
         fx.write_os(os_id)
@@ -556,8 +545,6 @@ def test_reinstall_keeps_key(os_id: str) -> None:
 
 
 def test_uninstall(os_id: str) -> None:
-    if os_id == "openwrt" and not have_unshare():
-        raise Skip("needs unshare")
     fx = Fixture()
     try:
         fx.write_os(os_id)
@@ -569,6 +556,9 @@ def test_uninstall(os_id: str) -> None:
         if os_id == "openwrt":
             if fx.init_file.exists():
                 raise Fail("openwrt uninstall left init")
+            actions = rc_actions(fx)
+            if "stop" not in actions or "disable" not in actions:
+                raise Fail(f"openwrt uninstall missing stop/disable in rc.common log: {actions}")
         else:
             if fx.unit_file.exists():
                 raise Fail(f"{os_id} uninstall left unit")
@@ -809,8 +799,6 @@ def main() -> int:
         try:
             fn()
             sys.stderr.write(f"PASS {name}\n")
-        except Skip as exc:
-            sys.stderr.write(f"SKIP {name}: {exc}\n")
         except Exception as exc:
             failed += 1
             sys.stderr.write(f"FAIL {name}: {exc}\n")

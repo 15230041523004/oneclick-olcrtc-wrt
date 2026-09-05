@@ -16,6 +16,7 @@ INSTALL_BIN="${INSTALL_BIN:-/usr/bin/olcrtc}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/olcrtc}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/olcrtc/server.yaml}"
 INIT_FILE="${INIT_FILE:-/etc/init.d/olcrtc-srv}"
+RC_COMMON="${RC_COMMON:-/etc/rc.common}"
 SERVICE_NAME="${SERVICE_NAME:-olcrtc-srv}"
 SYSTEMD_UNIT_FILE="${SYSTEMD_UNIT_FILE:-/etc/systemd/system/${SERVICE_NAME}.service}"
 SYSUPGRADE_CONF="${SYSUPGRADE_CONF:-/etc/sysupgrade.conf}"
@@ -131,9 +132,9 @@ if [ "$service_manager" = systemd ]; then
     systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
 elif [ -x "$INIT_FILE" ]; then
     log "stopping $SERVICE_NAME"
-    "$INIT_FILE" stop 2>/dev/null || true
+    /bin/sh "$RC_COMMON" "$INIT_FILE" stop 2>/dev/null || true
     log "disabling $SERVICE_NAME"
-    "$INIT_FILE" disable 2>/dev/null || true
+    /bin/sh "$RC_COMMON" "$INIT_FILE" disable 2>/dev/null || true
 fi
 
 if [ "$service_manager" = procd ]; then
