@@ -5,11 +5,11 @@
 # One line (OpenWrt wget / uclient-fetch), not raw main.
 # ROOM_ID must be on the `sh` after && — a prefix only applies to wget.
 #   wget -O /tmp/olcrtc-install.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
 #     && ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # Debian-family VDS (curl; sudo keeps ROOM_ID):
 #   curl -fL -o /tmp/olcrtc-install.sh \
-#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/download/v0.0.3-untested/install.sh \
+#     https://github.com/15230041523004/oneclick-olcrtc-wrt/releases/latest/download/install.sh \
 #     && sudo env ROOM_ID='<telemost-room-id>' sh /tmp/olcrtc-install.sh
 # The script then downloads olcrtc-linux-arm64|amd64|armv7 from the same Release.
 # Do not use sh -c "$(wget -qO- …)" (a 404 becomes an empty successful sh).
